@@ -1,7 +1,6 @@
 package net.sockc.wxhide;
 
 import android.app.Activity;
-import de.robv.android.xposed.AndroidAppHelper;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
@@ -154,7 +153,7 @@ public class HookEntry implements IXposedHookLoadPackage {
     }
 
     private void applyRuleToView(Context context, View view) {
-        if (context == null) context = AndroidAppHelper.currentApplication();
+        if (context == null) return;
         List<String> keywords = reloadRules(context, false);
         boolean hide = cachedEnabled && !keywords.isEmpty() && containsKeyword(view, keywords);
         setHiddenState(view, hide);
