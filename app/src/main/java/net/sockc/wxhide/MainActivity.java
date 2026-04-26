@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("WX Hide LSP v0.2.0");
+        title.setText("WX Hide LSP v0.2.1");
         title.setTextSize(28);
         title.setGravity(Gravity.START);
         title.setPadding(0, 0, 0, dp(12));
@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
         TextView tips = new TextView(this);
         tips.setText("当前版本增强了微信搜索页隐藏：会尝试隐藏匹配联系人、聊天记录、搜索网络结果和相关空白容器。\n"
                 + "新增微信设置页入口和桌面图标开关。隐藏桌面图标只隐藏启动器图标，不隐藏 LSPosed 模块和系统应用信息。\n"
-                + "每行一个关键词，建议填完整备注名；搜索页若仍显示，可额外加入短别名，例如完整名 A0英智，再额外加一行 英智。");
+                + "每行一个关键词，建议填完整备注名；本版会自动从 A0英智 这类规则提取 英智 作为别名。");
         tips.setTextSize(14);
         tips.setPadding(0, 0, 0, dp(12));
         root.addView(tips, new LinearLayout.LayoutParams(-1, -2));
@@ -126,7 +126,7 @@ public class MainActivity extends Activity {
         note.setText("说明：\n"
                 + "1. 显示 hit 代表 LSPosed 注入和隐藏命中正常。\n"
                 + "2. 如果搜索页仍显示网络搜索结果，把搜索框里能看到的短词也加入规则。\n"
-                + "3. 微信设置页入口是注入一个入口按钮，不修改微信数据库和账号数据。\n"
+                + "3. 微信设置页入口会优先注入到设置里的功能列表；失败时才回退为底部入口。\n"
                 + "4. 隐藏桌面图标前，建议先打开微信设置页入口，避免自己找不到配置页。\n"
                 + "5. 修改规则后建议强停/重开微信。没有 ROOT 就手动强停。\n"
                 + "6. 不建议使用过短关键词，容易误隐藏正常联系人。");

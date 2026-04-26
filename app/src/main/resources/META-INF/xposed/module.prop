@@ -1,6 +1,6 @@
 name=WX Hide LSP
-version=0.2.0
-versionCode=20
+version=0.2.1
+versionCode=21
 author=sockc
 minApi=23
 description=Local UI hiding rules for WeChat. Deep search hiding, WeChat settings entry, optional launcher icon hiding.

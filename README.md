@@ -33,3 +33,9 @@ README.md
 5. Enable deep search hiding if needed.
 6. Optionally enable WeChat settings entry before hiding launcher icon.
 7. Force stop WeChat and reopen it.
+
+
+## v0.2.1
+- 增强搜索页深度隐藏：清理联系人/聊天记录/搜一搜等空白分组残留。
+- 微信设置入口优先注入设置里的功能列表，失败再使用底部入口。
+- 规则自动提取中文别名，例如 A0英智 会自动补充 英智。
