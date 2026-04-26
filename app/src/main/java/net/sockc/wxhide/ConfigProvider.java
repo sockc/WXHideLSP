@@ -17,6 +17,7 @@ public class ConfigProvider extends ContentProvider {
     public static final Uri RULES_URI = Uri.parse("content://" + AUTHORITY + "/rules");
 
     private static final String WECHAT_PACKAGE = "com.tencent.mm";
+    private static final String MODULE_PACKAGE = "net.sockc.wxhide";
 
     @Override
     public boolean onCreate() {
@@ -62,7 +63,7 @@ public class ConfigProvider extends ContentProvider {
         String[] pkgs = pm.getPackagesForUid(callingUid);
         if (pkgs == null) return false;
         for (String p : pkgs) {
-            if (WECHAT_PACKAGE.equals(p) || BuildConfig.APPLICATION_ID.equals(p)) {
+            if (WECHAT_PACKAGE.equals(p) || MODULE_PACKAGE.equals(p)) {
                 return true;
             }
         }

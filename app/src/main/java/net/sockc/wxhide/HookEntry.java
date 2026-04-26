@@ -8,6 +8,9 @@ import android.net.Uri;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.AbsListView;
+
+import java.lang.reflect.Field;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -74,8 +77,8 @@ public class HookEntry implements IXposedHookLoadPackage {
 
     private void hookRecyclerViewByName(ClassLoader classLoader, String adapterName, String holderName) {
         try {
-            Class<?> adapterClass = XposedHelpers.findClassIfExists(adapterName, classLoader);
-            Class<?> holderClass = XposedHelpers.findClassIfExists(holderName, classLoader);
+            Class<?> adapterClass = findClassOrNull(adapterName, classLoader);
+            Class<?> holderClass = findClassOrNull(holderName, classLoader);
             if (adapterClass == null || holderClass == null) {
                 log("skip RecyclerView hook, class not found: " + adapterName);
                 return;
@@ -86,9 +89,8 @@ public class HookEntry implements IXposedHookLoadPackage {
                 protected void afterHookedMethod(MethodHookParam param) {
                     Object holder = param.args[0];
                     if (holder == null) return;
-                    Object itemViewObj = XposedHelpers.getObjectField(holder, "itemView");
-                    if (!(itemViewObj instanceof View)) return;
-                    View itemView = (View) itemViewObj;
+                    View itemView = getItemView(holder);
+                    if (itemView == null) return;
                     applyRuleToView(itemView.getContext(), itemView);
                 }
             });
@@ -103,7 +105,7 @@ public class HookEntry implements IXposedHookLoadPackage {
      */
     private void hookAbsListView() {
         try {
-            XposedHelpers.findAndHookMethod("android.widget.AbsListView", null, "obtainView", int.class, boolean[].class, new XC_MethodHook() {
+            XposedHelpers.findAndHookMethod(AbsListView.class, "obtainView", int.class, boolean[].class, new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
                     Object result = param.getResult();
@@ -116,6 +118,39 @@ public class HookEntry implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             log("hook AbsListView.obtainView failed", t);
         }
+    }
+
+
+    private Class<?> findClassOrNull(String name, ClassLoader classLoader) {
+        try {
+            ClassLoader loader = classLoader != null ? classLoader : HookEntry.class.getClassLoader();
+            return Class.forName(name, false, loader);
+        } catch (Throwable ignored) {
+            try {
+                return Class.forName(name);
+            } catch (Throwable ignoredAgain) {
+                return null;
+            }
+        }
+    }
+
+    private View getItemView(Object holder) {
+        try {
+            Class<?> c = holder.getClass();
+            while (c != null) {
+                try {
+                    Field field = c.getDeclaredField("itemView");
+                    field.setAccessible(true);
+                    Object value = field.get(holder);
+                    return value instanceof View ? (View) value : null;
+                } catch (NoSuchFieldException ignored) {
+                    c = c.getSuperclass();
+                }
+            }
+        } catch (Throwable t) {
+            log("read RecyclerView.ViewHolder.itemView failed", t);
+        }
+        return null;
     }
 
     private void applyRuleToView(Context context, View view) {

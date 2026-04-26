@@ -59,3 +59,11 @@
 7. 解压后安装里面的 `app-debug.apk`。
 
 如果 Actions 页面提示需要启用 Workflow，按页面提示启用即可。
+
+
+## V0.1.1 修复
+
+- 移除对 `XposedHelpers.findClassIfExists()` 的依赖，避免旧版 Xposed API 编译失败。
+- 移除 `BuildConfig.APPLICATION_ID` 调用，避免部分 AGP 配置下找不到 BuildConfig。
+- RecyclerView itemView 改成普通反射读取。
+- GitHub Actions 构建命令加入 `--stacktrace`，后续失败能显示更完整日志。
