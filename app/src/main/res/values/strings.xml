@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">WX Hide LSP</string>
+    <string name="xposed_description">Hide selected WeChat conversations or contacts locally by UI filtering.</string>
+</resources>
