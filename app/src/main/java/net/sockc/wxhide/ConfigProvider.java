@@ -15,6 +15,7 @@ import java.util.List;
 public class ConfigProvider extends ContentProvider {
     public static final String AUTHORITY = "net.sockc.wxhide.provider";
     public static final Uri RULES_URI = Uri.parse("content://" + AUTHORITY + "/rules");
+    public static final Uri STATUS_URI = Uri.parse("content://" + AUTHORITY + "/status");
 
     private static final String WECHAT_PACKAGE = "com.tencent.mm";
     private static final String MODULE_PACKAGE = "net.sockc.wxhide";
@@ -28,7 +29,20 @@ public class ConfigProvider extends ContentProvider {
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
         Context context = getContext();
         if (context == null || !isCallerAllowed(context)) {
-            return emptyCursor();
+            return emptyRulesCursor();
+        }
+
+        String path = uri == null ? "" : uri.getPath();
+        if ("/status".equals(path)) {
+            MatrixCursor cursor = new MatrixCursor(new String[]{"time", "event", "detail", "enabled", "keyword_count"});
+            cursor.addRow(new Object[]{
+                    Prefs.getLastStatusTime(context),
+                    Prefs.getLastStatusEvent(context),
+                    Prefs.getLastStatusDetail(context),
+                    Prefs.isEnabled(context) ? 1 : 0,
+                    Prefs.parseKeywords(Prefs.getRawKeywords(context)).size()
+            });
+            return cursor;
         }
 
         MatrixCursor cursor = new MatrixCursor(new String[]{"enabled", "keyword"});
@@ -51,7 +65,7 @@ public class ConfigProvider extends ContentProvider {
         return cursor;
     }
 
-    private Cursor emptyCursor() {
+    private Cursor emptyRulesCursor() {
         return new MatrixCursor(new String[]{"enabled", "keyword"});
     }
 
@@ -80,5 +94,14 @@ public class ConfigProvider extends ContentProvider {
     public int delete(Uri uri, String selection, String[] selectionArgs) { throw new UnsupportedOperationException("read only"); }
 
     @Override
-    public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) { throw new UnsupportedOperationException("read only"); }
+    public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
+        Context context = getContext();
+        if (context == null || !isCallerAllowed(context)) return 0;
+        String path = uri == null ? "" : uri.getPath();
+        if (!"/status".equals(path)) return 0;
+        String event = values == null ? "" : values.getAsString("event");
+        String detail = values == null ? "" : values.getAsString("detail");
+        Prefs.saveStatus(context, event, detail);
+        return 1;
+    }
 }

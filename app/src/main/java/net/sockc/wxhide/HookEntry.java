@@ -1,19 +1,25 @@
 package net.sockc.wxhide;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
+import android.view.ViewParent;
 import android.widget.AbsListView;
+import android.widget.AdapterView;
+import android.widget.TextView;
 
 import java.lang.reflect.Field;
-
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -26,20 +32,26 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static final String TAG = "WXHideLSP";
     private static final String WECHAT_PACKAGE = "com.tencent.mm";
     private static final Uri RULES_URI = Uri.parse("content://net.sockc.wxhide.provider/rules");
+    private static final Uri STATUS_URI = Uri.parse("content://net.sockc.wxhide.provider/status");
 
-    // 尽量避开常见资源 ID。用于缓存 View 原始状态，避免 RecyclerView 复用后一直隐藏。
+    // 用高位自定义 key 缓存原始状态，避免 RecyclerView 复用后一直隐藏。
     private static final int TAG_ORIGINAL_HEIGHT = 0x72684351;
     private static final int TAG_ORIGINAL_VISIBILITY = 0x72684352;
     private static final int TAG_ORIGINAL_ALPHA = 0x72684353;
 
     private static final AtomicBoolean hooksInstalled = new AtomicBoolean(false);
+    private static final Set<String> hookedAdapterClasses = Collections.synchronizedSet(new HashSet<String>());
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+
     private static volatile long lastLoadAt = 0L;
     private static volatile List<String> cachedKeywords = Collections.emptyList();
     private static volatile boolean cachedEnabled = true;
+    private static volatile long lastReportAt = 0L;
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if (!WECHAT_PACKAGE.equals(lpparam.packageName)) return;
+        // UI 基本都在主进程；其他进程跳过，降低误 Hook 和性能开销。
         if (!WECHAT_PACKAGE.equals(lpparam.processName)) return;
 
         if (!hooksInstalled.compareAndSet(false, true)) return;
@@ -48,6 +60,7 @@ public class HookEntry implements IXposedHookLoadPackage {
         hookActivityResume();
         hookRecyclerView(lpparam.classLoader);
         hookAbsListView();
+        hookTextViewTextChange();
     }
 
     private void hookActivityResume() {
@@ -55,8 +68,12 @@ public class HookEntry implements IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod(Activity.class, "onResume", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
-                    Context context = ((Activity) param.thisObject).getApplicationContext();
+                    Activity activity = (Activity) param.thisObject;
+                    Context context = activity.getApplicationContext();
                     reloadRules(context, true);
+                    reportStatus(context, "loaded", "Activity.onResume: " + activity.getClass().getName());
+                    scanActivityLater(activity, 120L);
+                    scanActivityLater(activity, 520L);
                 }
             });
             log("hook Activity.onResume ok");
@@ -65,37 +82,77 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
     }
 
-    /**
-     * 微信新版大量列表使用 RecyclerView。这里 Hook 基类三参数 onBindViewHolder：
-     * 大多数 Adapter 即使重写二参数 onBindViewHolder，也会被三参数方法包一层调用，兼容性较好。
-     */
     private void hookRecyclerView(ClassLoader classLoader) {
-        hookRecyclerViewByName(classLoader, "androidx.recyclerview.widget.RecyclerView$Adapter", "androidx.recyclerview.widget.RecyclerView$ViewHolder");
-        hookRecyclerViewByName(classLoader, "android.support.v7.widget.RecyclerView$Adapter", "android.support.v7.widget.RecyclerView$ViewHolder");
+        hookRecyclerViewByName(classLoader, "androidx.recyclerview.widget.RecyclerView", "androidx.recyclerview.widget.RecyclerView$Adapter", "androidx.recyclerview.widget.RecyclerView$ViewHolder");
+        hookRecyclerViewByName(classLoader, "android.support.v7.widget.RecyclerView", "android.support.v7.widget.RecyclerView$Adapter", "android.support.v7.widget.RecyclerView$ViewHolder");
     }
 
-    private void hookRecyclerViewByName(ClassLoader classLoader, String adapterName, String holderName) {
+    private void hookRecyclerViewByName(ClassLoader classLoader, String recyclerName, String adapterName, String holderName) {
         try {
+            Class<?> recyclerClass = findClassOrNull(recyclerName, classLoader);
             Class<?> adapterClass = findClassOrNull(adapterName, classLoader);
             Class<?> holderClass = findClassOrNull(holderName, classLoader);
-            if (adapterClass == null || holderClass == null) {
-                log("skip RecyclerView hook, class not found: " + adapterName);
+            if (recyclerClass == null || adapterClass == null || holderClass == null) {
+                log("skip RecyclerView hook, class not found: " + recyclerName);
                 return;
             }
 
-            XposedHelpers.findAndHookMethod(adapterClass, "onBindViewHolder", holderClass, int.class, List.class, new XC_MethodHook() {
+            hookAdapterClass(adapterClass);
+
+            // 微信很多 Adapter 会重写 onBindViewHolder；只 Hook 基类不够。
+            // 这里在 RecyclerView.setAdapter 时动态 Hook 真实 Adapter 类。
+            XposedHelpers.findAndHookMethod(recyclerClass, "setAdapter", adapterClass, new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
-                    Object holder = param.args[0];
-                    if (holder == null) return;
-                    View itemView = getItemView(holder);
-                    if (itemView == null) return;
-                    applyRuleToView(itemView.getContext(), itemView);
+                    Object adapter = param.args[0];
+                    if (adapter != null) {
+                        hookAdapterClass(adapter.getClass());
+                    }
                 }
             });
-            log("hook RecyclerView ok: " + adapterName);
+            log("hook RecyclerView.setAdapter ok: " + recyclerName);
         } catch (Throwable t) {
-            log("hook RecyclerView failed: " + adapterName, t);
+            log("hook RecyclerView failed: " + recyclerName, t);
+        }
+    }
+
+    private void hookAdapterClass(Class<?> adapterClass) {
+        if (adapterClass == null) return;
+        String name = adapterClass.getName();
+        if (!hookedAdapterClasses.add(name)) return;
+
+        XC_MethodHook bindHook = new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                if (param.args == null || param.args.length == 0) return;
+                View itemView = getItemView(param.args[0]);
+                if (itemView == null) return;
+                applyRuleToView(itemView.getContext(), itemView);
+            }
+        };
+
+        XC_MethodHook attachHook = new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                if (param.args == null || param.args.length == 0) return;
+                View itemView = getItemView(param.args[0]);
+                if (itemView == null) return;
+                applyRuleToView(itemView.getContext(), itemView);
+            }
+        };
+
+        try {
+            XposedBridge.hookAllMethods(adapterClass, "onBindViewHolder", bindHook);
+            log("hook Adapter.onBindViewHolder ok: " + name);
+        } catch (Throwable t) {
+            log("hook Adapter.onBindViewHolder failed: " + name, t);
+        }
+
+        try {
+            XposedBridge.hookAllMethods(adapterClass, "onViewAttachedToWindow", attachHook);
+            log("hook Adapter.onViewAttachedToWindow ok: " + name);
+        } catch (Throwable ignored) {
+            // 不是所有 Adapter 都有这个方法；忽略即可。
         }
     }
 
@@ -119,6 +176,57 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
     }
 
+    /**
+     * 兜底 Hook：有些微信页面文字是异步设置的，Adapter bind 时 item 里还没有最终文字。
+     * 这里监听 TextView.setText，命中关键词后只隐藏最近的列表项，不隐藏整个页面。
+     */
+    private void hookTextViewTextChange() {
+        try {
+            XposedHelpers.findAndHookMethod(TextView.class, "setText", CharSequence.class, TextView.BufferType.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    final TextView tv = (TextView) param.thisObject;
+                    if (tv == null) return;
+                    Context context = tv.getContext();
+                    if (context == null) return;
+                    if (!maybeContainsKeyword(context, tv.getText())) return;
+                    tv.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            View item = findNearestListItem(tv);
+                            if (item != null) applyRuleToView(item.getContext(), item);
+                        }
+                    });
+                }
+            });
+            log("hook TextView.setText ok");
+        } catch (Throwable t) {
+            log("hook TextView.setText failed", t);
+        }
+
+        try {
+            XposedHelpers.findAndHookMethod(View.class, "setContentDescription", CharSequence.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    final View view = (View) param.thisObject;
+                    if (view == null) return;
+                    Context context = view.getContext();
+                    if (context == null) return;
+                    if (!maybeContainsKeyword(context, view.getContentDescription())) return;
+                    view.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            View item = findNearestListItem(view);
+                            if (item != null) applyRuleToView(item.getContext(), item);
+                        }
+                    });
+                }
+            });
+            log("hook View.setContentDescription ok");
+        } catch (Throwable t) {
+            log("hook View.setContentDescription failed", t);
+        }
+    }
 
     private Class<?> findClassOrNull(String name, ClassLoader classLoader) {
         try {
@@ -134,6 +242,7 @@ public class HookEntry implements IXposedHookLoadPackage {
     }
 
     private View getItemView(Object holder) {
+        if (holder == null) return null;
         try {
             Class<?> c = holder.getClass();
             while (c != null) {
@@ -152,16 +261,68 @@ public class HookEntry implements IXposedHookLoadPackage {
         return null;
     }
 
+    private void scanActivityLater(final Activity activity, long delayMs) {
+        MAIN.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (activity == null || activity.isFinishing()) return;
+                    View root = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+                    if (root == null) return;
+                    scanListItems(activity.getApplicationContext(), root, 0);
+                } catch (Throwable t) {
+                    log("scan activity failed", t);
+                }
+            }
+        }, delayMs);
+    }
+
+    private void scanListItems(Context context, View view, int depth) {
+        if (context == null || view == null || depth > 12) return;
+        if (!(view instanceof ViewGroup)) return;
+        ViewGroup group = (ViewGroup) view;
+        int count = group.getChildCount();
+        for (int i = 0; i < count; i++) {
+            View child = group.getChildAt(i);
+            if (isListContainer(group)) {
+                applyRuleToView(context, child);
+            } else {
+                scanListItems(context, child, depth + 1);
+            }
+        }
+    }
+
     private void applyRuleToView(Context context, View view) {
-        if (context == null) return;
+        if (context == null || view == null) return;
+        // 如果这个 View 上一次被隐藏，先恢复后再读取文本，避免因为 INVISIBLE 导致读不到文字。
+        if (view.getTag(TAG_ORIGINAL_VISIBILITY) != null) {
+            setHiddenState(view, false);
+        }
+
         List<String> keywords = reloadRules(context, false);
         boolean hide = cachedEnabled && !keywords.isEmpty() && containsKeyword(view, keywords);
         setHiddenState(view, hide);
+
+        if (hide) {
+            reportStatus(context, "hit", "hidden item: " + previewText(view));
+        }
+    }
+
+    private boolean maybeContainsKeyword(Context context, CharSequence text) {
+        if (context == null || text == null) return false;
+        List<String> keywords = reloadRules(context, false);
+        if (!cachedEnabled || keywords.isEmpty()) return false;
+        String s = Prefs.normalize(text.toString());
+        if (s.isEmpty()) return false;
+        for (String keyword : keywords) {
+            if (!keyword.isEmpty() && s.contains(keyword)) return true;
+        }
+        return false;
     }
 
     private List<String> reloadRules(Context context, boolean force) {
         long now = System.currentTimeMillis();
-        if (!force && now - lastLoadAt < 1200L) return cachedKeywords;
+        if (!force && now - lastLoadAt < 900L) return cachedKeywords;
         lastLoadAt = now;
 
         if (context == null) return cachedKeywords;
@@ -188,6 +349,7 @@ public class HookEntry implements IXposedHookLoadPackage {
             return cachedKeywords;
         } catch (Throwable t) {
             log("reload rules failed", t);
+            reportStatus(context, "error", "reload rules failed: " + t.getClass().getSimpleName());
             return cachedKeywords;
         } finally {
             if (cursor != null) cursor.close();
@@ -195,9 +357,7 @@ public class HookEntry implements IXposedHookLoadPackage {
     }
 
     private boolean containsKeyword(View root, List<String> keywords) {
-        StringBuilder sb = new StringBuilder(256);
-        collectVisibleText(root, sb, 0, 0);
-        String text = Prefs.normalize(sb.toString());
+        String text = Prefs.normalize(previewText(root));
         if (text.isEmpty()) return false;
 
         for (String keyword : keywords) {
@@ -208,9 +368,16 @@ public class HookEntry implements IXposedHookLoadPackage {
         return false;
     }
 
-    private int collectVisibleText(View view, StringBuilder out, int depth, int count) {
+    private String previewText(View root) {
+        StringBuilder sb = new StringBuilder(256);
+        collectText(root, sb, 0, 0);
+        String s = sb.toString().replace('\n', ' ').replace('\r', ' ').trim();
+        if (s.length() > 80) s = s.substring(0, 80);
+        return s;
+    }
+
+    private int collectText(View view, StringBuilder out, int depth, int count) {
         if (view == null || out.length() > 3000 || depth > 8 || count > 120) return count;
-        if (view.getVisibility() != View.VISIBLE) return count;
 
         CharSequence cd = view.getContentDescription();
         if (cd != null && cd.length() > 0) {
@@ -229,11 +396,35 @@ public class HookEntry implements IXposedHookLoadPackage {
             ViewGroup group = (ViewGroup) view;
             int childCount = group.getChildCount();
             for (int i = 0; i < childCount; i++) {
-                count = collectVisibleText(group.getChildAt(i), out, depth + 1, count);
+                count = collectText(group.getChildAt(i), out, depth + 1, count);
                 if (count > 120) break;
             }
         }
         return count;
+    }
+
+    private View findNearestListItem(View child) {
+        if (child == null) return null;
+        View current = child;
+        for (int i = 0; i < 12; i++) {
+            ViewParent parent = current.getParent();
+            if (parent == null) return null;
+            if (isListContainer(parent)) return current;
+            if (parent instanceof View) {
+                current = (View) parent;
+            } else {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private boolean isListContainer(Object object) {
+        if (object == null) return false;
+        if (object instanceof AbsListView) return true;
+        if (object instanceof AdapterView) return true;
+        String name = object.getClass().getName();
+        return name.contains("RecyclerView") || name.contains("WxRecyclerView") || name.contains("ListView");
     }
 
     private void setHiddenState(View view, boolean hide) {
@@ -265,14 +456,10 @@ public class HookEntry implements IXposedHookLoadPackage {
 
             if (oldVisibility instanceof Integer) {
                 view.setVisibility((Integer) oldVisibility);
-            } else if (view.getVisibility() == View.INVISIBLE) {
-                view.setVisibility(View.VISIBLE);
             }
 
             if (oldAlpha instanceof Float) {
                 view.setAlpha((Float) oldAlpha);
-            } else if (view.getAlpha() == 0f) {
-                view.setAlpha(1f);
             }
 
             if (lp != null && oldHeight instanceof Integer) {
@@ -283,6 +470,21 @@ public class HookEntry implements IXposedHookLoadPackage {
             view.setTag(TAG_ORIGINAL_VISIBILITY, null);
             view.setTag(TAG_ORIGINAL_ALPHA, null);
             view.setTag(TAG_ORIGINAL_HEIGHT, null);
+        }
+    }
+
+    private void reportStatus(Context context, String event, String detail) {
+        if (context == null) return;
+        long now = System.currentTimeMillis();
+        if (now - lastReportAt < 700L && !"hit".equals(event) && !"error".equals(event)) return;
+        lastReportAt = now;
+        try {
+            ContentValues values = new ContentValues();
+            values.put("event", event == null ? "" : event);
+            values.put("detail", detail == null ? "" : detail);
+            context.getContentResolver().update(STATUS_URI, values, null, null);
+        } catch (Throwable t) {
+            log("report status failed", t);
         }
     }
 

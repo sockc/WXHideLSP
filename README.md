@@ -1,69 +1,42 @@
-# WX Hide LSP
+# WX Hide LSP v0.1.3
 
-一个用于 LSPosed/LSPatch/Xposed 生态的微信本机 UI 隐藏模块示例。
+一个用于 LSPosed/Xposed 生态的微信本机 UI 隐藏模块。
 
 ## 功能
 
 - 仅作用域：`com.tencent.mm`
-- 通过关键词隐藏微信会话列表、联系人列表、搜索结果等标准 RecyclerView/ListView 条目
+- 通过关键词隐藏微信会话列表、联系人列表、搜索结果等列表条目
 - 不删除微信数据库
-- 不读取、上传、转发聊天内容
+- 不上传、不转发、不备份聊天内容
 - 配置只保存在模块自身 SharedPreferences 中
+- v0.1.3 增加状态页、动态 Adapter Hook、TextView 异步文字兜底 Hook
 
-## 适配思路
+## GitHub Actions 构建
 
-微信新版内部类名混淆频繁，因此本项目不硬编码微信内部类名，而是在 UI 列表层 Hook：
+上传到 GitHub 仓库根目录后，打开 Actions -> Build WXHideLSP APK -> Run workflow。
 
-- `androidx.recyclerview.widget.RecyclerView$Adapter.onBindViewHolder(holder, position, payloads)`
-- `android.support.v7.widget.RecyclerView$Adapter.onBindViewHolder(holder, position, payloads)`
-- `android.widget.AbsListView.obtainView(position, isScrap)`
+仓库根目录应直接包含：
 
-绑定完成后递归扫描列表项里的 `TextView` 与 `contentDescription`，匹配到关键词则将该 item 高度压到 1 并设为透明/不可见。
+```text
+app/
+.github/
+build.gradle
+settings.gradle
+gradle.properties
+README.md
+```
 
 ## 使用
 
-1. 用 Android Studio 打开本工程。
-2. 构建 Debug APK：`Build > Build APK(s)`，或命令行执行：
-   ```bash
-   gradle :app:assembleDebug
-   ```
-3. 安装 APK。
-4. 在 LSPosed 中启用模块，作用域只勾选微信 `com.tencent.mm`。
-5. 打开 `WX Hide LSP`，每行填写一个关键词，例如备注名、昵称、群名。
-6. 保存后强制停止微信，再重新打开。
+1. 安装 APK。
+2. LSPosed 中启用模块，作用域只勾选微信 `com.tencent.mm`。
+3. 重启手机或强制停止微信。
+4. 打开 `WX Hide LSP`，每行填写一个关键词，例如备注名、昵称、群名。
+5. 保存后强制停止微信，再打开微信测试。
+6. 回到模块 App 点“刷新模块状态”，如果显示 `loaded` 或 `hit`，说明模块已加载。
 
 ## 注意
 
-- 这是 UI 隐藏，不是数据库级隐藏。微信搜索、备份、通知、其他设备同步不一定被隐藏。
+- 这是 UI 隐藏，不是数据库级隐藏。
 - 关键词不要太短，否则可能误隐藏正常联系人或聊天。
-- 如果某个微信页面不生效，通常是该页面用了特殊自绘/异步加载，需要针对具体页面再加专用 Hook。
-- 本项目没有加入密码锁。建议先把基础隐藏跑通，再加密码解锁/快捷开关。
-
-## 文件说明
-
-- `HookEntry.java`：LSP/Xposed Hook 入口
-- `ConfigProvider.java`：给微信进程读取模块配置的只读 Provider，仅允许模块自身和微信 UID 查询
-- `MainActivity.java`：简单配置界面
-- `Prefs.java`：配置读写与关键词规范化
-
-## GitHub Actions 在线构建 APK
-
-如果你没有 Android Studio，可以把整个工程上传到 GitHub，然后用 Actions 自动生成 APK。
-
-1. 在 GitHub 新建一个仓库，例如 `WXHideLSP`。
-2. 上传本工程全部文件，注意 `.github/workflows/build-apk.yml` 也要上传。
-3. 打开仓库的 `Actions` 页面。
-4. 选择 `Build WXHideLSP APK`。
-5. 点击 `Run workflow`。
-6. 构建成功后，在本次运行页面最下面的 `Artifacts` 下载 `WXHideLSP-debug-apk`。
-7. 解压后安装里面的 `app-debug.apk`。
-
-如果 Actions 页面提示需要启用 Workflow，按页面提示启用即可。
-
-
-## V0.1.1 修复
-
-- 移除对 `XposedHelpers.findClassIfExists()` 的依赖，避免旧版 Xposed API 编译失败。
-- 移除 `BuildConfig.APPLICATION_ID` 调用，避免部分 AGP 配置下找不到 BuildConfig。
-- RecyclerView itemView 改成普通反射读取。
-- GitHub Actions 构建命令加入 `--stacktrace`，后续失败能显示更完整日志。
+- 如果状态一直为空，优先检查 LSPosed 作用域是否勾选微信，并重启手机。
