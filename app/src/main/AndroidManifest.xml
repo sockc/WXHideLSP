@@ -16,6 +16,10 @@
             android:name=".MainActivity"
             android:exported="true" />
 
+        <activity
+            android:name=".ConfigActivity"
+            android:exported="true" />
+
         <activity-alias
             android:name=".LauncherActivity"
             android:enabled="true"

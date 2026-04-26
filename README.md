@@ -1,42 +1,15 @@
-# WX Hide LSP v0.2.2
+# WX Hide LSP v0.2.3
 
-Local UI hiding rules for WeChat, designed for LSPosed.
+本模块只做微信本机 UI 隐藏，不删除微信数据，不读取或上传聊天内容。
 
-## v0.2.2 changes
+## v0.2.3 变化
 
-- Safe hiding mode: only hides matched contact rows and chat-history rows.
-- Removed the aggressive search cleanup from v0.2.1, so it no longer hides network search results, large blank containers, Moments, or Discover pages.
-- Search behaves normally: searching a hidden contact only removes the matching local contact/chat rows; web/search-network rows are left alone.
-- WeChat Settings entry no longer uses the bottom floating fallback. It only tries to inject into the settings function list.
-- Keeps Samsung Secure Folder / clone profile compatibility.
+- APK 桌面入口改为“状态页”，只显示模块加载状态和命中次数。
+- 完整配置页改为从微信：我 → 设置 → 功能 → WX Hide LSP 打开。
+- 保存配置后会广播通知微信进程刷新规则，通常不需要重启微信。
+- 保留“安全隐藏”：只隐藏命中的联系人行、聊天记录行，不隐藏网络搜索/朋友圈/发现页。
+- 加入固定 debug 签名文件，从 v0.2.3 往后的 GitHub Actions APK 可以直接覆盖安装。
 
-## Build
+## 注意
 
-Upload this project to GitHub root and run Actions -> Build WXHideLSP APK.
-
-Repository root should contain:
-
-```text
-app/
-.github/
-build.gradle
-settings.gradle
-gradle.properties
-README.md
-```
-
-## Usage
-
-1. Install APK.
-2. Enable module in LSPosed.
-3. Scope WeChat: `com.tencent.mm`, including Samsung Secure Folder profile if used.
-4. Open WX Hide LSP and add one keyword per line.
-5. Keep “搜索页安全隐藏” enabled if you want matching search result rows removed.
-6. Optionally enable WeChat settings entry before hiding launcher icon.
-7. Force stop WeChat and reopen it.
-
-## Notes
-
-- This module does not delete WeChat data. It only hides matched UI rows locally.
-- v0.2.2 intentionally avoids hiding “搜索网络结果 / 搜一搜 / 网络结果” to prevent the black-screen / white-screen issue seen in v0.2.1.
-- If the WeChat settings entry still does not enter the real function menu, check LSPosed logs for `WXHideLSP: inline settings entry failed` and send the exact log line.
+如果你从 v0.2.2 或更早版本升级，旧 APK 可能是 GitHub Actions 随机 debug 签名，第一次升级到 v0.2.3 可能仍需先卸载旧版。v0.2.3 之后再升级通常可以直接覆盖安装。

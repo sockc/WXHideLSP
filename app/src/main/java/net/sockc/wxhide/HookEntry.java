@@ -2,10 +2,13 @@ package net.sockc.wxhide;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -15,6 +18,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -39,6 +43,8 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static final long CONFIG_TTL_MS = 700L;
 
     private static volatile boolean initialized = false;
+    private static volatile boolean configReceiverRegistered = false;
+    private static volatile WeakReference<Activity> currentActivity = new WeakReference<Activity>(null);
     private static volatile long lastConfigReadAt = 0L;
     private static volatile Config cachedConfig = new Config(true, Collections.<String>emptyList(), true, true);
     private static final Set<String> hookedAdapterClasses = Collections.synchronizedSet(new HashSet<String>());
@@ -74,6 +80,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                     + ", searchSafe=" + cfg.searchSafe + ", entry=" + cfg.wechatEntry);
             record(context, "loaded", "hooks initialized, rules=" + cfg.rules.size() + ", enabled=" + cfg.enabled, false);
 
+            registerConfigReceiver(context);
             hookActivity(context);
             hookTextView(context);
             hookRecyclerView(classLoader, context, "androidx.recyclerview.widget.RecyclerView");
@@ -86,12 +93,69 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
     }
 
+    private static void registerConfigReceiver(final Context context) {
+        if (context == null || configReceiverRegistered) return;
+        synchronized (HookEntry.class) {
+            if (configReceiverRegistered) return;
+            configReceiverRegistered = true;
+        }
+        try {
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                 public void onReceive(Context c, Intent intent) {
+                    if (intent == null || !Prefs.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
+                    lastConfigReadAt = 0L;
+                    readConfig(context, true);
+                    Activity a = currentActivity == null ? null : currentActivity.get();
+                    if (a != null) scheduleScan(a);
+                    record(context, "loaded", "config changed broadcast received", false);
+                }
+            };
+            IntentFilter filter = new IntentFilter(Prefs.ACTION_CONFIG_CHANGED);
+            if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
+            else context.registerReceiver(receiver, filter);
+            XposedBridge.log(TAG + ": config receiver registered");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": register config receiver failed: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+        }
+    }
+
+    private static void scheduleScan(final Activity activity) {
+        if (activity == null) return;
+        final View decor;
+        try { decor = activity.getWindow().getDecorView(); } catch (Throwable t) { return; }
+        if (decor == null) return;
+        long[] delays = new long[]{0L, 160L, 520L};
+        for (final long d : delays) {
+            decor.postDelayed(new Runnable() {
+                 public void run() { scanVisibleLists(activity, decor, 0); }
+            }, d);
+        }
+    }
+
+    private static void scanVisibleLists(Context context, View view, int depth) {
+        if (context == null || view == null || depth > 16) return;
+        try {
+            if (view instanceof ViewGroup) {
+                ViewGroup vg = (ViewGroup) view;
+                boolean isList = isListContainerName(view.getClass().getName());
+                int count = Math.min(vg.getChildCount(), 160);
+                for (int i = 0; i < count; i++) {
+                    View child = vg.getChildAt(i);
+                    if (isList) applyListItem(context, child, true);
+                    scanVisibleLists(context, child, depth + 1);
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
     private static void hookActivity(final Context context) {
         try {
             XposedBridge.hookAllMethods(Activity.class, "onResume", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     if (!(param.thisObject instanceof Activity)) return;
                     final Activity activity = (Activity) param.thisObject;
+                    currentActivity = new WeakReference<Activity>(activity);
+                    scheduleScan(activity);
                     record(activity, "loaded", "Activity.onResume: " + activity.getClass().getName(), false);
                     activity.getWindow().getDecorView().postDelayed(new Runnable() {
                         @Override public void run() { injectWechatSettingsEntry(activity); }
@@ -687,7 +751,7 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static void openModuleSettings(Activity activity) {
         try {
             Intent i = new Intent();
-            i.setClassName(Prefs.PACKAGE_NAME, Prefs.PACKAGE_NAME + ".MainActivity");
+            i.setClassName(Prefs.PACKAGE_NAME, Prefs.PACKAGE_NAME + ".ConfigActivity");
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             activity.startActivity(i);
         } catch (Throwable t) {

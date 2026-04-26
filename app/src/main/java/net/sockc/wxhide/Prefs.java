@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 public final class Prefs {
     public static final String PACKAGE_NAME = "net.sockc.wxhide";
     public static final String WECHAT_PACKAGE = "com.tencent.mm";
+    public static final String ACTION_CONFIG_CHANGED = "net.sockc.wxhide.CONFIG_CHANGED";
 
     public static final String SP_NAME = "wxhide_config";
     public static final String KEY_ENABLED = "enabled";

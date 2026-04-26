@@ -10,8 +10,23 @@ android {
         applicationId 'net.sockc.wxhide'
         minSdk 23
         targetSdk 35
-        versionCode 22
-        versionName '0.2.2'
+        versionCode 23
+        versionName '0.2.3'
+    }
+
+    signingConfigs {
+        debugStable {
+            storeFile file('debug-stable.keystore')
+            storePassword 'wxhide123'
+            keyAlias 'wxhide'
+            keyPassword 'wxhide123'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debugStable
+        }
     }
 }
 
