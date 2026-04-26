@@ -37,13 +37,10 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static final int TAG_ENTRY_INSTALLED = 0x7f0c2027;
     private static final int TAG_INLINE_ENTRY_ROW = 0x7f0c2028;
     private static final long CONFIG_TTL_MS = 700L;
-    private static final long SENSITIVE_TOKEN_TTL_MS = 12000L;
 
     private static volatile boolean initialized = false;
     private static volatile long lastConfigReadAt = 0L;
     private static volatile Config cachedConfig = new Config(true, Collections.<String>emptyList(), true, true);
-    private static volatile String lastSensitiveToken = "";
-    private static volatile long lastSensitiveTokenAt = 0L;
     private static final Set<String> hookedAdapterClasses = Collections.synchronizedSet(new HashSet<String>());
 
     @Override
@@ -74,12 +71,11 @@ public class HookEntry implements IXposedHookLoadPackage {
         try {
             Config cfg = readConfig(context, true);
             XposedBridge.log(TAG + ": initOnce, rules=" + cfg.rules.size() + ", enabled=" + cfg.enabled
-                    + ", deep=" + cfg.deepSearch + ", entry=" + cfg.wechatEntry);
+                    + ", searchSafe=" + cfg.searchSafe + ", entry=" + cfg.wechatEntry);
             record(context, "loaded", "hooks initialized, rules=" + cfg.rules.size() + ", enabled=" + cfg.enabled, false);
 
             hookActivity(context);
             hookTextView(context);
-            hookViewGroup(context);
             hookRecyclerView(classLoader, context, "androidx.recyclerview.widget.RecyclerView");
             hookRecyclerView(classLoader, context, "android.support.v7.widget.RecyclerView");
             hookAbsListView(context);
@@ -98,22 +94,11 @@ public class HookEntry implements IXposedHookLoadPackage {
                     final Activity activity = (Activity) param.thisObject;
                     record(activity, "loaded", "Activity.onResume: " + activity.getClass().getName(), false);
                     activity.getWindow().getDecorView().postDelayed(new Runnable() {
-                        @Override public void run() {
-                            injectWechatSettingsEntry(activity);
-                            deepCleanActiveSearch(activity);
-                        }
+                        @Override public void run() { injectWechatSettingsEntry(activity); }
                     }, 180L);
                     activity.getWindow().getDecorView().postDelayed(new Runnable() {
-                        @Override public void run() {
-                            injectWechatSettingsEntry(activity);
-                            deepCleanActiveSearch(activity);
-                        }
+                        @Override public void run() { injectWechatSettingsEntry(activity); }
                     }, 650L);
-                    activity.getWindow().getDecorView().postDelayed(new Runnable() {
-                        @Override public void run() {
-                            deepCleanActiveSearch(activity);
-                        }
-                    }, 1200L);
                 }
             });
             XposedBridge.log(TAG + ": hook Activity.onResume ok");
@@ -130,50 +115,17 @@ public class HookEntry implements IXposedHookLoadPackage {
                     final Object obj = param.thisObject;
                     if (!(obj instanceof TextView)) return;
                     final TextView tv = (TextView) obj;
-                    updateSensitiveTokenFromText(context, safeCharSeq(tv.getText()));
                     tv.postDelayed(new Runnable() {
-                        @Override public void run() {
-                            applyDirectTextCleanup(context, tv);
-                            applyNearView(context, tv);
-                        }
-                    }, 50L);
+                        @Override public void run() { applyFromAnyView(context, tv, false); }
+                    }, 80L);
                     tv.postDelayed(new Runnable() {
-                        @Override public void run() {
-                            applyDirectTextCleanup(context, tv);
-                            applyNearView(context, tv);
-                        }
-                    }, 220L);
-                    tv.postDelayed(new Runnable() {
-                        @Override public void run() { applyDirectTextCleanup(context, tv); }
-                    }, 520L);
+                        @Override public void run() { applyFromAnyView(context, tv, false); }
+                    }, 260L);
                 }
             });
             XposedBridge.log(TAG + ": hook TextView.setText ok");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": hook TextView.setText failed: " + t);
-        }
-    }
-
-    private static void hookViewGroup(final Context context) {
-        try {
-            XposedBridge.hookAllMethods(ViewGroup.class, "addView", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.args == null || param.args.length == 0 || !(param.args[0] instanceof View)) return;
-                    final View child = (View) param.args[0];
-                    child.postDelayed(new Runnable() { @Override public void run() {
-                        applyDirectTextCleanup(context, child);
-                        applyNearView(context, child);
-                    } }, 80L);
-                    child.postDelayed(new Runnable() { @Override public void run() {
-                        applyDirectTextCleanup(context, child);
-                        applyNearView(context, child);
-                    } }, 260L);
-                }
-            });
-            XposedBridge.log(TAG + ": hook ViewGroup.addView ok");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": hook ViewGroup.addView failed: " + t);
         }
     }
 
@@ -206,7 +158,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         @Override protected void afterHookedMethod(MethodHookParam param) {
                             if (param.getResult() instanceof View) {
                                 final View v = (View) param.getResult();
-                                v.post(new Runnable() { @Override public void run() { applyRoot(context, v); } });
+                                v.post(new Runnable() { @Override public void run() { applyListItem(context, v, true); } });
                             }
                         }
                     });
@@ -260,8 +212,8 @@ public class HookEntry implements IXposedHookLoadPackage {
                             else if (param.args != null && param.args.length > 0) holder = param.args[0];
                             final View itemView = getItemView(holder);
                             if (itemView != null) {
-                                itemView.postDelayed(new Runnable() { @Override public void run() { applyRoot(context, itemView); } }, 30L);
-                                itemView.postDelayed(new Runnable() { @Override public void run() { applyRoot(context, itemView); } }, 180L);
+                                itemView.postDelayed(new Runnable() { @Override public void run() { applyListItem(context, itemView, true); } }, 30L);
+                                itemView.postDelayed(new Runnable() { @Override public void run() { applyListItem(context, itemView, true); } }, 180L);
                             }
                         }
                     });
@@ -287,27 +239,92 @@ public class HookEntry implements IXposedHookLoadPackage {
         return null;
     }
 
-    private static void applyNearView(Context context, View v) {
+    private static void applyFromAnyView(Context context, View v, boolean definitelyItem) {
         if (v == null) return;
-        View root = findItemRoot(v);
-        if (root == null) root = v;
-        applyRoot(context, root);
+        View item = definitelyItem ? v : findSafeListItemRoot(v);
+        if (item != null) applyListItem(context, item, true);
     }
 
-    private static View findItemRoot(View v) {
+    private static void applyListItem(Context context, View item, boolean allowHeaderCleanup) {
+        if (item == null || context == null) return;
+        Config cfg = readConfig(context, false);
+        if (!cfg.enabled || cfg.rules.isEmpty()) {
+            restoreIfNeeded(item);
+            return;
+        }
+
+        View target = findSafeListItemRoot(item);
+        if (target == null) target = item;
+        if (!isSafeListItem(target)) return;
+
+        String text = collectText(target, 0, new StringBuilder(512)).toString();
+        if (isNetworkSearchRow(text)) {
+            restoreIfNeeded(target);
+            return;
+        }
+
+        MatchResult mr = matchText(text, cfg);
+        if (mr.matched) {
+            hide(target);
+            if (cfg.searchSafe && allowHeaderCleanup) maybeHideImmediateSectionHeader(target);
+            record(context, "hit", "matched: " + mr.reason + " on item=" + target.getClass().getSimpleName(), true);
+        } else {
+            restoreIfNeeded(target);
+        }
+    }
+
+    private static View findSafeListItemRoot(View v) {
+        if (v == null) return null;
         View current = v;
-        View last = v;
+        View child = v;
         int depth = 0;
-        while (current != null && current.getParent() instanceof View && depth < 12) {
+        while (current != null && current.getParent() instanceof View && depth < 14) {
             View parent = (View) current.getParent();
-            String n = parent.getClass().getName();
-            if (isListContainerName(n)) return current;
-            if (isActivityContent(parent)) return current;
-            last = parent;
+            if (isListContainerName(parent.getClass().getName())) return current;
+            if (isActivityContent(parent)) break;
+            child = current;
             current = parent;
             depth++;
         }
-        return last;
+        if (isSafeStandaloneRow(child)) return child;
+        return null;
+    }
+
+    private static boolean isSafeListItem(View v) {
+        if (v == null || isActivityContent(v)) return false;
+        try {
+            if (v.getRootView() == v) return false;
+            ViewGroup.LayoutParams lp = v.getLayoutParams();
+            int h = lp == null ? 0 : lp.height;
+            if (h == 0 && !(v.getTag(TAG_HIDE_STATE) instanceof HideState)) return false;
+            if (hasListParent(v)) return true;
+            return isSafeStandaloneRow(v);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean hasListParent(View v) {
+        View cur = v;
+        int depth = 0;
+        while (cur != null && cur.getParent() instanceof View && depth < 10) {
+            View p = (View) cur.getParent();
+            if (isListContainerName(p.getClass().getName())) return true;
+            if (isActivityContent(p)) return false;
+            cur = p;
+            depth++;
+        }
+        return false;
+    }
+
+    private static boolean isSafeStandaloneRow(View v) {
+        if (v == null) return false;
+        int h = 0, w = 0;
+        try { h = v.getHeight(); w = v.getWidth(); } catch (Throwable ignored) {}
+        if (h <= 0 || w <= 0) return false;
+        if (h > dp(v.getContext(), 120)) return false;
+        String text = compact(collectText(v, 0, new StringBuilder(512)).toString());
+        return text.length() >= 2 && text.length() <= 160;
     }
 
     private static boolean isListContainerName(String n) {
@@ -319,216 +336,33 @@ public class HookEntry implements IXposedHookLoadPackage {
         try { return v.getId() == android.R.id.content; } catch (Throwable ignored) { return false; }
     }
 
-    private static void applyRoot(Context context, View root) {
-        if (root == null || context == null) return;
-        Config cfg = readConfig(context, false);
-        if (!cfg.enabled || cfg.rules.isEmpty()) {
-            restoreIfNeeded(root);
-            return;
-        }
-
-        applyDirectTextCleanup(context, root);
-
-        View target = findItemRoot(root);
-        if (target == null) target = root;
-        String text = collectText(target, 0, new StringBuilder(512)).toString();
-        MatchResult mr = matchText(text, cfg);
-        if (mr.matched) {
-            updateSensitiveToken(mr.token);
-            hide(target);
-            if (cfg.deepSearch) hideRelatedHeaderOrContainer(target, text);
-            record(context, "hit", "matched: " + mr.reason + " on view=" + target.getClass().getSimpleName(), true);
-        } else if (cfg.deepSearch && shouldHideBecauseSensitiveSearch(text)) {
-            hide(target);
-            record(context, "hit", "deep search cleanup on view=" + target.getClass().getSimpleName(), true);
-        } else {
-            restoreIfNeeded(target);
-        }
-    }
-
-    private static void hideRelatedHeaderOrContainer(View target, String text) {
-        if (target == null) return;
-        // Remove margin/padding remnants from the matched item, nearby header and blank holder layers.
-        hide(target);
-        hideAdjacentBlankSiblings(target);
-        View parent = null;
-        try { if (target.getParent() instanceof View) parent = (View) target.getParent(); } catch (Throwable ignored) {}
-        if (parent != null && !isListContainerName(parent.getClass().getName()) && !isActivityContent(parent)) {
-            String pt = collectText(parent, 0, new StringBuilder(512)).toString();
-            if (matchSearchRelatedText(pt) || matchSectionCleanupText(pt) || containsSectionCleanupText(pt) || safeContainsSensitiveToken(pt)) {
-                hide(parent);
-                hideAdjacentBlankSiblings(parent);
-            }
-        }
-    }
-
-    private static void applyDirectTextCleanup(Context context, View view) {
-        if (context == null || view == null) return;
-        Config cfg = readConfig(context, false);
-        if (!cfg.enabled || !cfg.deepSearch || cfg.rules.isEmpty()) return;
-        if (!isSensitiveSearchActive(context, view, cfg)) return;
-
-        String selfText = "";
+    private static void maybeHideImmediateSectionHeader(View hiddenItem) {
         try {
-            if (view instanceof TextView) selfText = safeCharSeq(((TextView) view).getText());
-            CharSequence cd = view.getContentDescription();
-            if (cd != null) selfText = selfText + "\n" + cd;
-        } catch (Throwable ignored) {}
-
-        String compact = compact(selfText);
-        boolean directHeader = matchSectionCleanupText(selfText) || matchSearchRelatedText(selfText)
-                || "联系人".equals(compact) || "聊天记录".equals(compact)
-                || "公众号".equals(compact) || "小程序".equals(compact) || "群聊".equals(compact);
-        if (!directHeader) return;
-
-        View target = findSmallCleanupContainer(view);
-        hide(target);
-        hideAdjacentBlankSiblings(target);
-        record(context, "hit", "deep cleanup header: " + compact, true);
-    }
-
-    private static boolean isSensitiveSearchActive(Context context, View anyView, Config cfg) {
-        long now = SystemClock.uptimeMillis();
-        if (lastSensitiveToken != null && lastSensitiveToken.length() >= 2 && now - lastSensitiveTokenAt <= SENSITIVE_TOKEN_TTL_MS) return true;
-        try {
-            View root = anyView == null ? null : anyView.getRootView();
-            if (root != null) {
-                String pageText = collectText(root, 0, new StringBuilder(2000)).toString();
-                MatchResult mr = matchText(pageText, cfg);
-                if (mr.matched) {
-                    updateSensitiveToken(mr.token);
-                    return true;
-                }
-            }
-        } catch (Throwable ignored) {}
-        return false;
-    }
-
-    private static View findSmallCleanupContainer(View v) {
-        if (v == null) return null;
-        View best = v;
-        View current = v;
-        int depth = 0;
-        while (current != null && current.getParent() instanceof View && depth < 6) {
-            View parent = (View) current.getParent();
-            if (isActivityContent(parent) || isListContainerName(parent.getClass().getName())) break;
-            String text = collectText(parent, 0, new StringBuilder(512)).toString();
-            String c = compact(text);
-            if (c.length() > 0 && c.length() <= 24 && containsSectionCleanupText(text)) best = parent;
-            if (c.length() > 40 || (c.contains("搜索") && c.contains("取消"))) break;
-            current = parent;
-            depth++;
-        }
-        return best == null ? v : best;
-    }
-
-    private static void hideAdjacentBlankSiblings(View target) {
-        if (target == null) return;
-        try {
-            if (!(target.getParent() instanceof ViewGroup)) return;
-            ViewGroup parent = (ViewGroup) target.getParent();
-            int idx = parent.indexOfChild(target);
-            if (idx < 0) return;
-            hideBlankSibling(parent, idx - 1);
-            hideBlankSibling(parent, idx + 1);
-            hideBlankSibling(parent, idx + 2);
+            if (!(hiddenItem.getParent() instanceof ViewGroup)) return;
+            ViewGroup parent = (ViewGroup) hiddenItem.getParent();
+            int idx = parent.indexOfChild(hiddenItem);
+            if (idx <= 0) return;
+            View prev = parent.getChildAt(idx - 1);
+            String t = compact(collectText(prev, 0, new StringBuilder(256)).toString());
+            if (isSearchSectionHeader(t)) hide(prev);
         } catch (Throwable ignored) {}
     }
 
-    private static void hideBlankSibling(ViewGroup parent, int index) {
-        try {
-            if (parent == null || index < 0 || index >= parent.getChildCount()) return;
-            View s = parent.getChildAt(index);
-            if (s == null) return;
-            String text = collectText(s, 0, new StringBuilder(512)).toString();
-            String c = compact(text);
-            if (c.length() == 0 || containsSectionCleanupText(text) || matchSearchRelatedText(text)) hide(s);
-        } catch (Throwable ignored) {}
+    private static boolean isSearchSectionHeader(String compactText) {
+        if (compactText == null) return false;
+        return "联系人".equals(compactText) || "聊天记录".equals(compactText) || "群聊".equals(compactText)
+                || "公众号".equals(compactText) || "小程序".equals(compactText);
     }
 
-    private static void deepCleanActiveSearch(Context context) {
-        if (!(context instanceof Activity)) return;
-        Activity activity = (Activity) context;
-        Config cfg = readConfig(activity, false);
-        if (!cfg.enabled || !cfg.deepSearch || cfg.rules.isEmpty()) return;
-        View decor;
-        try { decor = activity.getWindow().getDecorView(); } catch (Throwable t) { return; }
-        if (decor == null || !isSensitiveSearchActive(activity, decor, cfg)) return;
-        scanForSearchResidues(activity, decor, 0);
-    }
-
-    private static void scanForSearchResidues(Context context, View v, int depth) {
-        if (v == null || depth > 12) return;
-        try {
-            applyDirectTextCleanup(context, v);
-            String text = collectText(v, 0, new StringBuilder(512)).toString();
-            String c = compact(text);
-            if ((c.length() == 0 && depth > 2 && depth < 9) || containsSectionCleanupText(text) || matchSearchRelatedText(text)) {
-                if (!looksLikeSearchBar(v) && !isActivityContent(v)) {
-                    if (containsSectionCleanupText(text) || matchSearchRelatedText(text)) {
-                        View target = findSmallCleanupContainer(v);
-                        hide(target);
-                        hideAdjacentBlankSiblings(target);
-                    }
-                }
-            }
-            if (v instanceof ViewGroup) {
-                ViewGroup vg = (ViewGroup) v;
-                int count = Math.min(vg.getChildCount(), 140);
-                for (int i = 0; i < count; i++) scanForSearchResidues(context, vg.getChildAt(i), depth + 1);
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    private static boolean looksLikeSearchBar(View v) {
-        if (v == null) return false;
-        String text = collectText(v, 0, new StringBuilder(512)).toString();
-        String c = compact(text);
-        return c.contains("搜索") && (c.contains("取消") || c.length() <= 40);
-    }
-
-    private static boolean shouldHideBecauseSensitiveSearch(String text) {
-        if (text == null || text.length() == 0) return false;
-        long now = SystemClock.uptimeMillis();
-        String token = lastSensitiveToken;
-        if (token == null || token.length() < 2 || now - lastSensitiveTokenAt > SENSITIVE_TOKEN_TTL_MS) return false;
-        String lower = text.toLowerCase(Locale.ROOT);
-        String t = token.toLowerCase(Locale.ROOT);
-        if (lower.contains(t)) return true;
-        if (matchSearchRelatedText(text)) return true;
-        return matchSectionCleanupText(text) || containsSectionCleanupText(text);
-    }
-
-    private static boolean matchSearchRelatedText(String text) {
+    private static boolean isNetworkSearchRow(String text) {
         if (text == null) return false;
-        return text.contains("搜索网络结果") || text.contains("搜一搜") || text.contains("网络结果") || text.contains("Search the web");
-    }
-
-    private static boolean matchSectionCleanupText(String text) {
-        if (text == null) return false;
-        String t = compact(text);
-        return "联系人".equals(t) || "聊天记录".equals(t) || "公众号".equals(t) || "小程序".equals(t)
-                || "群聊".equals(t) || "搜索结果".equals(t);
-    }
-
-    private static boolean containsSectionCleanupText(String text) {
-        if (text == null) return false;
-        String t = compact(text);
-        if (t.length() > 40) return false;
-        return t.contains("联系人") || t.contains("聊天记录") || t.contains("公众号") || t.contains("小程序")
-                || t.contains("群聊") || t.contains("搜索网络结果") || t.contains("网络结果") || t.contains("搜一搜");
+        return text.contains("搜索网络结果") || text.contains("网络结果") || text.contains("搜一搜") || text.contains("Search the web");
     }
 
     private static String compact(String text) {
         if (text == null) return "";
         return text.replace("\n", "").replace("\r", "").replace("\t", "")
                 .replace(" ", "").replace("　", "").trim();
-    }
-
-    private static boolean safeContainsSensitiveToken(String text) {
-        String token = lastSensitiveToken;
-        if (text == null || token == null || token.length() < 2) return false;
-        return text.toLowerCase(Locale.ROOT).contains(token.toLowerCase(Locale.ROOT));
     }
 
     private static StringBuilder collectText(View v, int depth, StringBuilder sb) {
@@ -557,70 +391,17 @@ public class HookEntry implements IXposedHookLoadPackage {
             String rule = r.trim();
             if (rule.length() == 0) continue;
             String rl = rule.toLowerCase(Locale.ROOT);
-            if (lower.contains(rl)) return MatchResult.yes(rule, "exact rule");
-        }
-        if (cfg.deepSearch) {
-            List<String> tokens = splitTokens(text);
-            for (String token : tokens) {
-                if (token.length() < 2 || isCommonToken(token)) continue;
-                String tl = token.toLowerCase(Locale.ROOT);
-                for (String r : cfg.rules) {
-                    if (r == null) continue;
-                    String rl = r.trim().toLowerCase(Locale.ROOT);
-                    if (rl.length() < 2) continue;
-                    if (rl.contains(tl) || tl.contains(rl)) {
-                        if (matchSearchRelatedText(text) || token.length() >= 2) {
-                            return MatchResult.yes(token, "deep token");
-                        }
-                    }
-                }
-            }
+            if (lower.contains(rl)) return MatchResult.yes(rule, "rule");
         }
         return MatchResult.no();
-    }
-
-    private static List<String> splitTokens(String text) {
-        ArrayList<String> out = new ArrayList<String>();
-        if (text == null) return out;
-        String[] arr = text.split("[\\r\\n\\t ,，:：/\\\\|()（）\\[\\]{}<>《》]+");
-        if (arr.length <= 1) arr = text.split("\\r?\\n");
-        for (String s : arr) {
-            if (s == null) continue;
-            String t = s.trim();
-            if (t.length() >= 2 && t.length() <= 30) out.add(t);
-        }
-        return out;
-    }
-
-    private static boolean isCommonToken(String t) {
-        if (t == null) return true;
-        String s = t.trim();
-        return "联系人".equals(s) || "聊天记录".equals(s) || "搜索网络结果".equals(s)
-                || "搜一搜".equals(s) || "公众号".equals(s) || "小程序".equals(s)
-                || "朋友圈".equals(s) || "群聊".equals(s) || "更多".equals(s);
-    }
-
-    private static void updateSensitiveTokenFromText(Context context, String s) {
-        if (s == null || s.trim().length() < 2) return;
-        Config cfg = readConfig(context, false);
-        if (!cfg.enabled || cfg.rules.isEmpty()) return;
-        MatchResult mr = matchText(s, cfg);
-        if (mr.matched) updateSensitiveToken(mr.token);
     }
 
     private static String safeCharSeq(CharSequence cs) {
         return cs == null ? "" : cs.toString();
     }
 
-    private static void updateSensitiveToken(String token) {
-        if (token == null) return;
-        String t = token.trim();
-        if (t.length() < 2) return;
-        lastSensitiveToken = t;
-        lastSensitiveTokenAt = SystemClock.uptimeMillis();
-    }
-
     private static void hide(View root) {
+        if (root == null) return;
         try {
             Object old = root.getTag(TAG_HIDE_STATE);
             if (!(old instanceof HideState)) {
@@ -652,6 +433,7 @@ public class HookEntry implements IXposedHookLoadPackage {
     }
 
     private static void restoreIfNeeded(View root) {
+        if (root == null) return;
         try {
             Object old = root.getTag(TAG_HIDE_STATE);
             if (!(old instanceof HideState)) return;
@@ -697,20 +479,28 @@ public class HookEntry implements IXposedHookLoadPackage {
         return (ch >= '\u4e00' && ch <= '\u9fff') || (ch >= '\u3400' && ch <= '\u4dbf');
     }
 
+    private static boolean isCommonToken(String t) {
+        if (t == null) return true;
+        String s = t.trim();
+        return "联系人".equals(s) || "聊天记录".equals(s) || "搜索网络结果".equals(s)
+                || "搜一搜".equals(s) || "公众号".equals(s) || "小程序".equals(s)
+                || "朋友圈".equals(s) || "群聊".equals(s) || "更多".equals(s) || "网络结果".equals(s);
+    }
+
     private static Config readConfig(Context context, boolean force) {
         long now = SystemClock.uptimeMillis();
         if (!force && now - lastConfigReadAt < CONFIG_TTL_MS) return cachedConfig;
         lastConfigReadAt = now;
 
         boolean enabled = true;
-        boolean deepSearch = true;
+        boolean searchSafe = true;
         boolean wechatEntry = true;
         String rules = "";
 
         try {
             enabled = Prefs.getEnabledFromGlobal(context);
             rules = Prefs.getRulesFromGlobal(context);
-            deepSearch = Prefs.getDeepSearchFromGlobal(context);
+            searchSafe = Prefs.getDeepSearchFromGlobal(context);
             wechatEntry = Prefs.getWechatEntryFromGlobal(context);
         } catch (Throwable ignored) {}
 
@@ -722,7 +512,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                         if (c.moveToFirst()) {
                             enabled = "1".equals(c.getString(0));
                             rules = c.getString(1);
-                            if (c.getColumnCount() > 2) deepSearch = "1".equals(c.getString(2));
+                            if (c.getColumnCount() > 2) searchSafe = "1".equals(c.getString(2));
                             if (c.getColumnCount() > 3) wechatEntry = "1".equals(c.getString(3));
                         }
                     } finally { c.close(); }
@@ -743,7 +533,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                 }
             }
         }
-        cachedConfig = new Config(enabled, list, deepSearch, wechatEntry);
+        cachedConfig = new Config(enabled, list, searchSafe, wechatEntry);
         return cachedConfig;
     }
 
@@ -753,7 +543,7 @@ public class HookEntry implements IXposedHookLoadPackage {
         if (!cfg.wechatEntry) return;
         String cls = activity.getClass().getName().toLowerCase(Locale.ROOT);
         View decor = activity.getWindow().getDecorView();
-        String rootText = collectText(decor, 0, new StringBuilder(512)).toString();
+        String rootText = collectText(decor, 0, new StringBuilder(1024)).toString();
         boolean likelySettings = cls.contains("setting") || cls.contains("settings") || rootText.contains("关于微信") || rootText.contains("帮助与反馈");
         if (!likelySettings) return;
 
@@ -766,36 +556,18 @@ public class HookEntry implements IXposedHookLoadPackage {
         if (inlineOk) {
             content.setTag(TAG_ENTRY_INSTALLED, Boolean.TRUE);
             record(activity, "loaded", "wechat settings inline entry injected: " + activity.getClass().getName(), false);
-            return;
+        } else {
+            record(activity, "loaded", "wechat settings inline entry not found, no bottom fallback", false);
         }
-
-        content.setTag(TAG_ENTRY_INSTALLED, Boolean.TRUE);
-        TextView entry = new TextView(activity);
-        entry.setText("WX Hide LSP 设置");
-        entry.setTextSize(16);
-        entry.setGravity(Gravity.CENTER);
-        entry.setTextColor(0xff111111);
-        entry.setBackgroundColor(0xeeffffff);
-        int pad = dp(activity, 12);
-        entry.setPadding(pad, pad, pad, pad);
-        entry.setClickable(true);
-        entry.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { openModuleSettings(activity); }
-        });
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.gravity = Gravity.BOTTOM;
-        lp.leftMargin = dp(activity, 18);
-        lp.rightMargin = dp(activity, 18);
-        lp.bottomMargin = dp(activity, 20);
-        content.addView(entry, lp);
-        record(activity, "loaded", "wechat settings fallback entry injected: " + activity.getClass().getName(), false);
     }
 
     private static boolean injectInlineFunctionMenuEntry(final Activity activity, View root) {
         try {
             View anchor = findSettingsAnchorRow(root);
-            if (anchor == null || !(anchor.getParent() instanceof ViewGroup)) return false;
+            if (anchor == null) return false;
+            if (!(anchor.getParent() instanceof ViewGroup)) return false;
             ViewGroup parent = (ViewGroup) anchor.getParent();
+            if (isListContainerName(parent.getClass().getName())) return false;
             if (parent.getTag(TAG_INLINE_ENTRY_ROW) instanceof Boolean) return true;
             for (int i = 0; i < parent.getChildCount(); i++) {
                 View child = parent.getChildAt(i);
@@ -833,7 +605,7 @@ public class HookEntry implements IXposedHookLoadPackage {
 
             int index = parent.indexOfChild(anchor);
             if (index < 0) index = parent.getChildCount() - 1;
-            ViewGroup.LayoutParams newLp = cloneRowLayoutParams(anchor);
+            ViewGroup.LayoutParams newLp = makeRowLayoutParams(activity, parent);
             parent.addView(row, Math.min(index + 1, parent.getChildCount()), newLp);
             parent.setTag(TAG_INLINE_ENTRY_ROW, Boolean.TRUE);
             return true;
@@ -843,47 +615,37 @@ public class HookEntry implements IXposedHookLoadPackage {
         }
     }
 
-    private static ViewGroup.LayoutParams cloneRowLayoutParams(View anchor) {
-        try {
-            ViewGroup.LayoutParams lp = anchor.getLayoutParams();
-            if (lp instanceof ViewGroup.MarginLayoutParams) {
-                ViewGroup.MarginLayoutParams m = (ViewGroup.MarginLayoutParams) lp;
-                ViewGroup.MarginLayoutParams out = new ViewGroup.MarginLayoutParams(m.width, m.height);
-                out.setMargins(m.leftMargin, m.topMargin, m.rightMargin, m.bottomMargin);
-                if (out.height <= 0) out.height = dp(anchor.getContext(), 56);
-                return out;
-            }
-            if (lp != null) {
-                int h = lp.height <= 0 ? dp(anchor.getContext(), 56) : lp.height;
-                return new ViewGroup.LayoutParams(lp.width, h);
-            }
-        } catch (Throwable ignored) {}
-        return new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(anchor.getContext(), 56));
+    private static ViewGroup.LayoutParams makeRowLayoutParams(Context c, ViewGroup parent) {
+        if (parent instanceof LinearLayout) return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 56));
+        if (parent instanceof FrameLayout) return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 56));
+        return new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 56));
     }
 
     private static View findSettingsAnchorRow(View root) {
         if (root == null) return null;
-        View plugin = findTextViewByExactText(root, "插件", 0);
-        if (plugin != null) return findSmallSettingsRow(plugin);
-        View other = findTextViewByExactText(root, "其他功能", 0);
-        if (other != null) return findSmallSettingsRow(other);
-        View about = findTextViewByExactText(root, "关于微信", 0);
-        if (about != null) return findSmallSettingsRow(about);
+        String[] labels = new String[]{"插件", "其他功能", "聊天记录管理", "音视频通话", "关于微信"};
+        for (String label : labels) {
+            View tv = findTextViewByText(root, label, 0);
+            if (tv != null) {
+                View row = findSettingsRowFromText(tv);
+                if (row != null) return row;
+            }
+        }
         return null;
     }
 
-    private static View findTextViewByExactText(View v, String target, int depth) {
-        if (v == null || target == null || depth > 16) return null;
+    private static View findTextViewByText(View v, String target, int depth) {
+        if (v == null || target == null || depth > 18) return null;
         try {
             if (v instanceof TextView) {
                 String t = compact(safeCharSeq(((TextView) v).getText()));
-                if (target.equals(t)) return v;
+                if (target.equals(t) || t.startsWith(target) || t.contains(target)) return v;
             }
             if (v instanceof ViewGroup) {
                 ViewGroup vg = (ViewGroup) v;
-                int count = Math.min(vg.getChildCount(), 200);
+                int count = Math.min(vg.getChildCount(), 240);
                 for (int i = 0; i < count; i++) {
-                    View r = findTextViewByExactText(vg.getChildAt(i), target, depth + 1);
+                    View r = findTextViewByText(vg.getChildAt(i), target, depth + 1);
                     if (r != null) return r;
                 }
             }
@@ -891,21 +653,35 @@ public class HookEntry implements IXposedHookLoadPackage {
         return null;
     }
 
-    private static View findSmallSettingsRow(View v) {
+    private static View findSettingsRowFromText(View v) {
         if (v == null) return null;
         View best = v;
         View cur = v;
         int depth = 0;
-        while (cur != null && cur.getParent() instanceof View && depth < 8) {
+        while (cur != null && cur.getParent() instanceof View && depth < 10) {
             View p = (View) cur.getParent();
-            if (isActivityContent(p)) break;
-            String t = compact(collectText(p, 0, new StringBuilder(512)).toString());
-            if (t.length() > 0 && t.length() <= 80) best = p;
-            if (t.length() > 80 || (t.contains("帮助与反馈") && t.contains("关于微信") && t.contains("聊天"))) break;
+            if (isActivityContent(p) || isListContainerName(p.getClass().getName())) break;
+            String pt = compact(collectText(p, 0, new StringBuilder(1024)).toString());
+            String ct = compact(collectText(cur, 0, new StringBuilder(512)).toString());
+            if (ct.length() > 0 && ct.length() <= 120) best = cur;
+            if (pt.length() > 160 || looksLikeSettingsPageGroup(pt)) break;
             cur = p;
             depth++;
         }
         return best;
+    }
+
+    private static boolean looksLikeSettingsPageGroup(String t) {
+        if (t == null) return false;
+        int hits = 0;
+        if (t.contains("聊天")) hits++;
+        if (t.contains("音视频通话")) hits++;
+        if (t.contains("聊天记录管理")) hits++;
+        if (t.contains("其他功能")) hits++;
+        if (t.contains("插件")) hits++;
+        if (t.contains("帮助与反馈")) hits++;
+        if (t.contains("关于微信")) hits++;
+        return hits >= 3;
     }
 
     private static void openModuleSettings(Activity activity) {
@@ -949,12 +725,12 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static final class Config {
         final boolean enabled;
         final List<String> rules;
-        final boolean deepSearch;
+        final boolean searchSafe;
         final boolean wechatEntry;
-        Config(boolean enabled, List<String> rules, boolean deepSearch, boolean wechatEntry) {
+        Config(boolean enabled, List<String> rules, boolean searchSafe, boolean wechatEntry) {
             this.enabled = enabled;
             this.rules = rules == null ? Collections.<String>emptyList() : rules;
-            this.deepSearch = deepSearch;
+            this.searchSafe = searchSafe;
             this.wechatEntry = wechatEntry;
         }
     }

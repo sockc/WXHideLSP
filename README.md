@@ -1,12 +1,13 @@
-# WX Hide LSP v0.2.0
+# WX Hide LSP v0.2.2
 
 Local UI hiding rules for WeChat, designed for LSPosed.
 
-## v0.2.0 changes
+## v0.2.2 changes
 
-- Deeper search-page hiding: hides matching rows, related search rows, section headers, and empty-looking search containers more aggressively.
-- Optional WeChat Settings entry: adds a small `WX Hide LSP 设置` entry inside WeChat settings-like pages, which opens this module's configuration page.
-- Optional launcher icon hiding: hides only the desktop launcher alias. The module still remains visible in LSPosed and Android app management.
+- Safe hiding mode: only hides matched contact rows and chat-history rows.
+- Removed the aggressive search cleanup from v0.2.1, so it no longer hides network search results, large blank containers, Moments, or Discover pages.
+- Search behaves normally: searching a hidden contact only removes the matching local contact/chat rows; web/search-network rows are left alone.
+- WeChat Settings entry no longer uses the bottom floating fallback. It only tries to inject into the settings function list.
 - Keeps Samsung Secure Folder / clone profile compatibility.
 
 ## Build
@@ -30,12 +31,12 @@ README.md
 2. Enable module in LSPosed.
 3. Scope WeChat: `com.tencent.mm`, including Samsung Secure Folder profile if used.
 4. Open WX Hide LSP and add one keyword per line.
-5. Enable deep search hiding if needed.
+5. Keep “搜索页安全隐藏” enabled if you want matching search result rows removed.
 6. Optionally enable WeChat settings entry before hiding launcher icon.
 7. Force stop WeChat and reopen it.
 
+## Notes
 
-## v0.2.1
-- 增强搜索页深度隐藏：清理联系人/聊天记录/搜一搜等空白分组残留。
-- 微信设置入口优先注入设置里的功能列表，失败再使用底部入口。
-- 规则自动提取中文别名，例如 A0英智 会自动补充 英智。
+- This module does not delete WeChat data. It only hides matched UI rows locally.
+- v0.2.2 intentionally avoids hiding “搜索网络结果 / 搜一搜 / 网络结果” to prevent the black-screen / white-screen issue seen in v0.2.1.
+- If the WeChat settings entry still does not enter the real function menu, check LSPosed logs for `WXHideLSP: inline settings entry failed` and send the exact log line.

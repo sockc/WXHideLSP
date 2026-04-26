@@ -43,16 +43,16 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("WX Hide LSP v0.2.1");
+        title.setText("WX Hide LSP v0.2.2");
         title.setTextSize(28);
         title.setGravity(Gravity.START);
         title.setPadding(0, 0, 0, dp(12));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView tips = new TextView(this);
-        tips.setText("当前版本增强了微信搜索页隐藏：会尝试隐藏匹配联系人、聊天记录、搜索网络结果和相关空白容器。\n"
-                + "新增微信设置页入口和桌面图标开关。隐藏桌面图标只隐藏启动器图标，不隐藏 LSPosed 模块和系统应用信息。\n"
-                + "每行一个关键词，建议填完整备注名；本版会自动从 A0英智 这类规则提取 英智 作为别名。");
+        tips.setText("v0.2.2 改为安全隐藏：只隐藏命中的联系人行和聊天记录行，不再隐藏网络搜索、朋友圈、发现页或大面积空白容器。\n"
+                + "微信设置入口改为只尝试注入功能菜单；失败时不再使用底部悬浮入口，避免挡住微信设置页。\n"
+                + "每行一个关键词，建议填完整备注名；本版仍会自动从 A0英智 这类规则提取 英智 作为别名。");
         tips.setTextSize(14);
         tips.setPadding(0, 0, 0, dp(12));
         root.addView(tips, new LinearLayout.LayoutParams(-1, -2));
@@ -63,7 +63,7 @@ public class MainActivity extends Activity {
         root.addView(enableBox, new LinearLayout.LayoutParams(-1, -2));
 
         deepSearchBox = new CheckBox(this);
-        deepSearchBox.setText("增强搜索页深度隐藏");
+        deepSearchBox.setText("搜索页安全隐藏（仅隐藏联系人/聊天记录行）");
         deepSearchBox.setTextSize(18);
         root.addView(deepSearchBox, new LinearLayout.LayoutParams(-1, -2));
 
@@ -125,9 +125,9 @@ public class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText("说明：\n"
                 + "1. 显示 hit 代表 LSPosed 注入和隐藏命中正常。\n"
-                + "2. 如果搜索页仍显示网络搜索结果，把搜索框里能看到的短词也加入规则。\n"
-                + "3. 微信设置页入口会优先注入到设置里的功能列表；失败时才回退为底部入口。\n"
-                + "4. 隐藏桌面图标前，建议先打开微信设置页入口，避免自己找不到配置页。\n"
+                + "2. 本版不会隐藏搜索网络结果，避免返回后通讯录白屏、朋友圈黑屏。\n"
+                + "3. 微信设置入口只尝试注入到设置功能列表；失败时不会显示底部悬浮入口。\n"
+                + "4. 隐藏桌面图标前，建议先确认微信设置页入口能打开配置页。\n"
                 + "5. 修改规则后建议强停/重开微信。没有 ROOT 就手动强停。\n"
                 + "6. 不建议使用过短关键词，容易误隐藏正常联系人。");
         note.setTextSize(14);
@@ -200,7 +200,7 @@ public class MainActivity extends Activity {
         }
         configText.setText("当前配置：" + (enabled ? "已启用" : "已关闭")
                 + "\n关键词数量：" + count
-                + "\n增强搜索隐藏：" + (deep ? "已启用" : "已关闭")
+                + "\n搜索安全隐藏：" + (deep ? "已启用" : "已关闭")
                 + "\n微信设置入口：" + (entry ? "已启用" : "已关闭")
                 + "\n桌面图标：" + (launcher ? "显示" : "隐藏"));
     }
