@@ -330,7 +330,7 @@ public class HookEntry implements IXposedHookLoadPackage {
         MatchResult mr = matchText(text, cfg);
         if (mr.matched) {
             hide(target);
-            if (cfg.searchSafe && allowHeaderCleanup) maybeHideImmediateSectionHeader(target);
+            if (cfg.searchSafe && allowHeaderCleanup) cleanupSearchLocalSectionAfterHit(target);
             record(context, "hit", "matched: " + mr.reason + " on item=" + target.getClass().getSimpleName(), true);
         } else {
             restoreIfNeeded(target);
@@ -400,16 +400,123 @@ public class HookEntry implements IXposedHookLoadPackage {
         try { return v.getId() == android.R.id.content; } catch (Throwable ignored) { return false; }
     }
 
-    private static void maybeHideImmediateSectionHeader(View hiddenItem) {
+    private static void cleanupSearchLocalSectionAfterHit(final View hiddenItem) {
+        if (hiddenItem == null) return;
+        final View root;
+        try { root = hiddenItem.getRootView(); } catch (Throwable t) { return; }
+        if (root == null) return;
+        long[] delays = new long[]{40L, 180L, 420L};
+        for (final long d : delays) {
+            try {
+                root.postDelayed(new Runnable() {
+                    @Override public void run() { hideEmptyLocalSearchSection(root); }
+                }, d);
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    private static void hideEmptyLocalSearchSection(View root) {
         try {
-            if (!(hiddenItem.getParent() instanceof ViewGroup)) return;
-            ViewGroup parent = (ViewGroup) hiddenItem.getParent();
-            int idx = parent.indexOfChild(hiddenItem);
-            if (idx <= 0) return;
-            View prev = parent.getChildAt(idx - 1);
-            String t = compact(collectText(prev, 0, new StringBuilder(256)).toString());
-            if (isSearchSectionHeader(t)) hide(prev);
+            ArrayList<View> headers = new ArrayList<View>();
+            ArrayList<View> networks = new ArrayList<View>();
+            collectSearchMarkers(root, headers, networks, 0);
+            if (headers.isEmpty() || networks.isEmpty()) return;
+
+            for (View header : headers) {
+                for (View network : networks) {
+                    ViewGroup parent = findSearchCommonParent(header, network);
+                    if (parent == null) continue;
+                    View headerChild = directChildUnder(parent, header);
+                    View networkChild = directChildUnder(parent, network);
+                    if (headerChild == null || networkChild == null) continue;
+                    int hi = parent.indexOfChild(headerChild);
+                    int ni = parent.indexOfChild(networkChild);
+                    if (hi < 0 || ni <= hi || ni - hi > 8) continue;
+
+                    boolean hasVisibleLocalResult = false;
+                    for (int i = hi + 1; i < ni; i++) {
+                        View child = parent.getChildAt(i);
+                        if (child == null) continue;
+                        if (child.getVisibility() != View.VISIBLE) continue;
+                        if (child.getTag(TAG_HIDE_STATE) instanceof HideState) continue;
+                        String ct = compact(collectText(child, 0, new StringBuilder(512)).toString());
+                        if (ct.length() > 0 && !isSearchSectionHeader(ct) && !isNetworkSearchRow(ct)) {
+                            hasVisibleLocalResult = true;
+                            break;
+                        }
+                    }
+                    if (hasVisibleLocalResult) continue;
+
+                    for (int i = hi; i < ni; i++) {
+                        View child = parent.getChildAt(i);
+                        if (child != null) hide(child);
+                    }
+                    requestRelayout(parent);
+                    return;
+                }
+            }
         } catch (Throwable ignored) {}
+    }
+
+    private static void collectSearchMarkers(View v, List<View> headers, List<View> networks, int depth) {
+        if (v == null || depth > 18) return;
+        try {
+            if (v instanceof TextView) {
+                String t = compact(safeCharSeq(((TextView) v).getText()));
+                if ("联系人".equals(t)) headers.add(v);
+                if (isNetworkSearchRow(t)) networks.add(v);
+            }
+            if (v instanceof ViewGroup) {
+                ViewGroup vg = (ViewGroup) v;
+                int count = Math.min(vg.getChildCount(), 220);
+                for (int i = 0; i < count; i++) collectSearchMarkers(vg.getChildAt(i), headers, networks, depth + 1);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static ViewGroup findSearchCommonParent(View a, View b) {
+        if (a == null || b == null) return null;
+        View cur = a;
+        int depth = 0;
+        while (cur != null && cur.getParent() instanceof View && depth < 14) {
+            View p = (View) cur.getParent();
+            if (p instanceof ViewGroup && !isActivityContent(p) && containsDescendant((ViewGroup) p, b, 0)) {
+                ViewGroup vg = (ViewGroup) p;
+                int childCount = vg.getChildCount();
+                String t = collectText(vg, 0, new StringBuilder(1800)).toString();
+                if (childCount > 0 && childCount <= 80 && t.contains("联系人") && isNetworkSearchRow(t)) return vg;
+            }
+            cur = p;
+            depth++;
+        }
+        return null;
+    }
+
+    private static boolean containsDescendant(ViewGroup parent, View child, int depth) {
+        if (parent == null || child == null || depth > 18) return false;
+        if (parent == child) return true;
+        try {
+            int count = Math.min(parent.getChildCount(), 240);
+            for (int i = 0; i < count; i++) {
+                View c = parent.getChildAt(i);
+                if (c == child) return true;
+                if (c instanceof ViewGroup && containsDescendant((ViewGroup) c, child, depth + 1)) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static View directChildUnder(ViewGroup parent, View descendant) {
+        if (parent == null || descendant == null) return null;
+        View cur = descendant;
+        int depth = 0;
+        while (cur != null && cur.getParent() instanceof View && depth < 18) {
+            View p = (View) cur.getParent();
+            if (p == parent) return cur;
+            cur = p;
+            depth++;
+        }
+        return null;
     }
 
     private static boolean isSearchSectionHeader(String compactText) {
@@ -493,6 +600,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                 if (lp instanceof ViewGroup.MarginLayoutParams) ((ViewGroup.MarginLayoutParams) lp).setMargins(0, 0, 0, 0);
                 root.setLayoutParams(lp);
             }
+            requestRelayout(root);
         } catch (Throwable ignored) {}
     }
 
@@ -515,6 +623,19 @@ public class HookEntry implements IXposedHookLoadPackage {
                 lp.height = st.height;
                 if (lp instanceof ViewGroup.MarginLayoutParams) ((ViewGroup.MarginLayoutParams) lp).setMargins(st.ml, st.mt, st.mr, st.mb);
                 root.setLayoutParams(lp);
+            }
+            requestRelayout(root);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void requestRelayout(View root) {
+        if (root == null) return;
+        try { root.requestLayout(); root.invalidate(); } catch (Throwable ignored) {}
+        try {
+            Object p = root.getParent();
+            if (p instanceof View) {
+                ((View) p).requestLayout();
+                ((View) p).invalidate();
             }
         } catch (Throwable ignored) {}
     }

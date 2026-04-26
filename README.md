@@ -1,15 +1,15 @@
-# WX Hide LSP v0.2.3
+# WX Hide LSP v0.2.4
 
-本模块只做微信本机 UI 隐藏，不删除微信数据，不读取或上传聊天内容。
+LSPosed module for WeChat local UI hiding.
 
-## v0.2.3 变化
+## v0.2.4 changes
 
-- APK 桌面入口改为“状态页”，只显示模块加载状态和命中次数。
-- 完整配置页改为从微信：我 → 设置 → 功能 → WX Hide LSP 打开。
-- 保存配置后会广播通知微信进程刷新规则，通常不需要重启微信。
-- 保留“安全隐藏”：只隐藏命中的联系人行、聊天记录行，不隐藏网络搜索/朋友圈/发现页。
-- 加入固定 debug 签名文件，从 v0.2.3 往后的 GitHub Actions APK 可以直接覆盖安装。
+- Fix search page residue: when a hidden contact result is removed, also hide the local `联系人` section/header and its empty spacer before `搜索网络结果`.
+- Keep WeChat network search visible; the module no longer tries to hide `搜索网络结果 / 搜一搜 / 网络结果` rows.
+- Add layout refresh after hide/restore to reduce blank blocks in RecyclerView/ListView.
+- Keep APK desktop page as status page; full settings remain under WeChat `我 → 设置 → 功能 → WX Hide LSP`.
+- Keep stable debug signing for direct upgrade from v0.2.3+.
 
-## 注意
+## Upgrade
 
-如果你从 v0.2.2 或更早版本升级，旧 APK 可能是 GitHub Actions 随机 debug 签名，第一次升级到 v0.2.3 可能仍需先卸载旧版。v0.2.3 之后再升级通常可以直接覆盖安装。
+From v0.2.3 and later, direct install should work because the debug signing key is stable. If Android reports signature conflict, uninstall the old APK once and install again.

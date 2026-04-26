@@ -1,5 +1,5 @@
 name=WX Hide LSP
-version=0.2.3
-versionCode=23
+version=0.2.4
+versionCode=24
 author=sockc
 description=Hide selected WeChat conversations/contacts on local UI only. Status page in APK, full config entry in WeChat settings.
