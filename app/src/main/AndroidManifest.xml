@@ -1,13 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher"
-        android:label="@string/app_name"
-        android:theme="@style/AppTheme">
+        android:label="WX Hide LSP"
+        android:theme="@style/AppTheme"
+        android:resizeableActivity="true"
+        android:usesCleartextTraffic="false">
 
         <meta-data android:name="xposedmodule" android:value="true" />
-        <meta-data android:name="xposeddescription" android:value="@string/xposed_description" />
+        <meta-data android:name="xposeddescription" android:value="Hide selected WeChat conversations/contacts on local UI only." />
         <meta-data android:name="xposedminversion" android:value="82" />
 
         <activity
@@ -19,10 +21,13 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".StatusReceiver"
+            android:exported="true" />
+
         <provider
             android:name=".ConfigProvider"
             android:authorities="net.sockc.wxhide.provider"
-            android:exported="true"
-            android:grantUriPermissions="false" />
+            android:exported="true" />
     </application>
 </manifest>

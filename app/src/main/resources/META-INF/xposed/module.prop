@@ -1,7 +1,6 @@
-id=net.sockc.wxhide
 name=WX Hide LSP
-version=0.1.5
-versionCode=6
+version=0.1.6
+versionCode=16
 author=sockc
-description=Hide selected WeChat conversations or contacts locally by UI filtering.
-minApi=82
+minApi=23
+description=Local UI hiding rules for WeChat. Secure Folder config via Settings.Global.

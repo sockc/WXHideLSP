@@ -1,12 +1,12 @@
 package net.sockc.wxhide;
 
 import android.app.Activity;
-import android.database.Cursor;
-import android.net.Uri;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.text.InputType;
+import android.text.format.DateFormat;
 import android.view.Gravity;
-import android.view.ViewGroup;
+import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -15,162 +15,167 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final Uri STATUS_URI = Uri.parse("content://net.sockc.wxhide.provider/status");
-
-    private CheckBox enabledBox;
-    private EditText keywordsEdit;
-    private TextView statusView;
+    private CheckBox enableBox;
+    private EditText rulesEdit;
+    private TextView configText;
+    private TextView statusText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        int pad = dp(16);
-        ScrollView scrollView = new ScrollView(this);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
-        scrollView.addView(root, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        TextView title = new TextView(this);
-        title.setText("WX Hide LSP v0.1.5");
-        title.setTextSize(22);
-        title.setGravity(Gravity.START);
-        root.addView(title, lp(-1, -2));
-
-        TextView desc = new TextView(this);
-        desc.setText("本模块只在本机隐藏微信列表显示，不删除微信数据库，不上传任何内容。\n\n用法：每行一个关键词，建议填微信聊天列表或联系人列表里能看到的备注、昵称、群名。保存后强制停止微信再打开。");
-        desc.setTextSize(14);
-        desc.setPadding(0, dp(10), 0, dp(10));
-        root.addView(desc, lp(-1, -2));
-
-        enabledBox = new CheckBox(this);
-        enabledBox.setText("启用隐藏规则");
-        enabledBox.setChecked(Prefs.isEnabled(this));
-        root.addView(enabledBox, lp(-1, -2));
-
-        keywordsEdit = new EditText(this);
-        keywordsEdit.setHint("每行一个关键词，例如：\n张三\n家庭群\nsecret_name");
-        keywordsEdit.setMinLines(8);
-        keywordsEdit.setGravity(Gravity.TOP | Gravity.START);
-        keywordsEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        keywordsEdit.setText(Prefs.getRawKeywords(this));
-        root.addView(keywordsEdit, lp(-1, dp(220)));
-
-        Button save = new Button(this);
-        save.setText("保存规则");
-        save.setOnClickListener(v -> {
-            Prefs.save(this, enabledBox.isChecked(), keywordsEdit.getText().toString());
-            Toast.makeText(this, "已保存。请强制停止微信后重新打开。", Toast.LENGTH_LONG).show();
-            refreshStatus();
-        });
-        root.addView(save, lp(-1, -2));
-
-        Button saveAndStop = new Button(this);
-        saveAndStop.setText("保存并尝试强停微信（需要 root）");
-        saveAndStop.setOnClickListener(v -> {
-            Prefs.save(this, enabledBox.isChecked(), keywordsEdit.getText().toString());
-            boolean ok = forceStopWeChatByRoot();
-            Toast.makeText(this, ok ? "已保存，并已尝试强停微信。现在重新打开微信测试。" : "已保存，但 root 强停失败。请手动强制停止微信。", Toast.LENGTH_LONG).show();
-            refreshStatus();
-        });
-        root.addView(saveAndStop, lp(-1, -2));
-
-        Button disable = new Button(this);
-        disable.setText("临时关闭模块规则");
-        disable.setOnClickListener(v -> {
-            enabledBox.setChecked(false);
-            Prefs.save(this, false, keywordsEdit.getText().toString());
-            Toast.makeText(this, "已关闭规则。请强制停止微信后重新打开。", Toast.LENGTH_LONG).show();
-            refreshStatus();
-        });
-        root.addView(disable, lp(-1, -2));
-
-        statusView = new TextView(this);
-        statusView.setTextSize(13);
-        statusView.setPadding(0, dp(12), 0, dp(8));
-        root.addView(statusView, lp(-1, -2));
-
-        Button refresh = new Button(this);
-        refresh.setText("刷新模块状态");
-        refresh.setOnClickListener(v -> refreshStatus());
-        root.addView(refresh, lp(-1, -2));
-
-        TextView note = new TextView(this);
-        note.setText("说明：\n1. v0.1.5 增加全作用域探针。只要 LSPosed 把模块注入到已勾选 App，就会显示 probe/attach。\n2. 正常勾选微信后，打开微信再刷新状态，应该显示 attach/loaded/hit。\n3. 如果一直是暂无加载记录，优先检查：Magisk/KSU/APatch 排除列表是否把微信排除了、是否使用微信分身/安全文件夹、LSPosed 作用域是否勾选到正确用户。\n4. 临时调试时可以把“设置”也加入作用域，打开系统设置后如果显示 probe，说明模块本身能注入；如果仍为空，是 LSPosed/排除列表问题。\n5. 不建议填过短关键词，否则容易误隐藏正常联系人。");
-        note.setTextSize(13);
-        note.setPadding(0, dp(12), 0, 0);
-        root.addView(note, lp(-1, -2));
-
-        setContentView(scrollView);
+        buildUi();
+        loadConfig();
         refreshStatus();
     }
 
+    private void buildUi() {
+        int pad = dp(18);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad, pad, pad);
+        scroll.addView(root);
+
+        TextView title = new TextView(this);
+        title.setText("WX Hide LSP v0.1.6");
+        title.setTextSize(28);
+        title.setGravity(Gravity.START);
+        title.setPadding(0, 0, 0, dp(12));
+        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView tips = new TextView(this);
+        tips.setText("安全文件夹/分身微信建议使用本版：保存规则会同时写入 Settings.Global，微信子用户进程可直接读取。\n每行一个关键词，保存后重启微信。");
+        tips.setTextSize(14);
+        tips.setPadding(0, 0, 0, dp(12));
+        root.addView(tips, new LinearLayout.LayoutParams(-1, -2));
+
+        enableBox = new CheckBox(this);
+        enableBox.setText("启用隐藏规则");
+        enableBox.setTextSize(18);
+        root.addView(enableBox, new LinearLayout.LayoutParams(-1, -2));
+
+        rulesEdit = new EditText(this);
+        rulesEdit.setTextSize(18);
+        rulesEdit.setGravity(Gravity.TOP | Gravity.START);
+        rulesEdit.setMinLines(6);
+        rulesEdit.setSingleLine(false);
+        rulesEdit.setHint("每行一个关键词，例如：\n张三\n某某群\n完整备注名");
+        root.addView(rulesEdit, new LinearLayout.LayoutParams(-1, dp(210)));
+
+        Button save = button("保存规则 + 写入安全文件夹兼容配置");
+        save.setOnClickListener(v -> saveConfig(false));
+        root.addView(save);
+
+        Button saveStop = button("保存并尝试强停微信（需要 ROOT）");
+        saveStop.setOnClickListener(v -> saveConfig(true));
+        root.addView(saveStop);
+
+        Button disable = button("临时关闭模块规则");
+        disable.setOnClickListener(v -> {
+            enableBox.setChecked(false);
+            saveConfig(false);
+        });
+        root.addView(disable);
+
+        configText = new TextView(this);
+        configText.setTextSize(15);
+        configText.setPadding(0, dp(16), 0, dp(8));
+        root.addView(configText, new LinearLayout.LayoutParams(-1, -2));
+
+        statusText = new TextView(this);
+        statusText.setTextSize(15);
+        statusText.setPadding(0, dp(8), 0, dp(8));
+        root.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
+
+        Button refresh = button("刷新模块状态");
+        refresh.setOnClickListener(v -> refreshStatus());
+        root.addView(refresh);
+
+        Button readGlobal = button("读取当前全局配置");
+        readGlobal.setOnClickListener(v -> readGlobalConfig());
+        root.addView(readGlobal);
+
+        TextView note = new TextView(this);
+        note.setText("说明：\n"
+                + "1. 微信在三星安全文件夹里时，本机配置 App 和微信可能处于不同用户空间，旧版 ContentProvider 读取会失败。\n"
+                + "2. v0.1.6 增加 Settings.Global 规则读取，适配安全文件夹/分身环境。\n"
+                + "3. 如果状态仍为空，但隐藏生效，属于状态广播跨用户被拦截，不影响规则。\n"
+                + "4. 如果隐藏不生效，去 LSPosed 日志搜索 WXHideLSP，看是否有 attach/global rules 记录。\n"
+                + "5. 不建议使用过短关键词，容易误隐藏正常联系人。");
+        note.setTextSize(14);
+        note.setPadding(0, dp(18), 0, dp(24));
+        root.addView(note, new LinearLayout.LayoutParams(-1, -2));
+
+        setContentView(scroll);
+    }
+
+    private Button button(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(56));
+        lp.setMargins(0, dp(8), 0, dp(2));
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private void loadConfig() {
+        boolean enabled = Prefs.getEnabledLocal(this);
+        String rules = Prefs.getRulesLocal(this);
+        enableBox.setChecked(enabled);
+        rulesEdit.setText(rules);
+        updateConfigText(enabled, rules);
+    }
+
+    private void saveConfig(boolean forceStopWechat) {
+        boolean enabled = enableBox.isChecked();
+        String rules = rulesEdit.getText() == null ? "" : rulesEdit.getText().toString();
+        Prefs.saveLocal(this, enabled, rules);
+        boolean globalOk = Prefs.putGlobalViaRoot(enabled, rules);
+        boolean stopOk = true;
+        if (forceStopWechat) stopOk = Prefs.forceStopWechatViaRoot();
+
+        updateConfigText(enabled, rules);
+        String msg = "已保存本机配置";
+        msg += globalOk ? "，已写入全局配置" : "，全局配置写入失败/未授权 ROOT";
+        if (forceStopWechat) msg += stopOk ? "，已强停微信" : "，强停微信失败";
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+    }
+
+    private void updateConfigText(boolean enabled, String rules) {
+        int count = 0;
+        if (rules != null) {
+            String[] arr = rules.split("\\r?\\n");
+            for (String s : arr) if (s.trim().length() > 0) count++;
+        }
+        configText.setText("当前配置：" + (enabled ? "已启用" : "已关闭") + "\n关键词数量：" + count);
+    }
+
     private void refreshStatus() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("当前配置：")
-                .append(Prefs.isEnabled(this) ? "已启用" : "已关闭")
-                .append("\n关键词数量：")
-                .append(Prefs.parseKeywords(Prefs.getRawKeywords(this)).size())
-                .append("\n\nLSPosed 状态：");
-
-        Cursor cursor = null;
-        try {
-            cursor = getContentResolver().query(STATUS_URI, null, null, null, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                long time = cursor.getLong(cursor.getColumnIndex("time"));
-                String event = cursor.getString(cursor.getColumnIndex("event"));
-                String detail = cursor.getString(cursor.getColumnIndex("detail"));
-                if (time <= 0 || event == null || event.length() == 0) {
-                    sb.append("暂无加载记录");
-                } else {
-                    sb.append("\n最后事件：").append(event)
-                            .append("\n时间：").append(formatTime(time))
-                            .append("\n详情：").append(detail == null ? "" : detail);
-                }
-            } else {
-                sb.append("读取失败");
-            }
-        } catch (Throwable t) {
-            sb.append("读取失败：").append(t.getClass().getSimpleName()).append(" ").append(t.getMessage());
-        } finally {
-            if (cursor != null) cursor.close();
-        }
-        statusView.setText(sb.toString());
-    }
-
-    private String formatTime(long time) {
-        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date(time));
-    }
-
-    private boolean forceStopWeChatByRoot() {
-        Process process = null;
-        try {
-            process = Runtime.getRuntime().exec(new String[]{"su", "-c", "am force-stop com.tencent.mm"});
-            int code = process.waitFor();
-            return code == 0;
-        } catch (Throwable ignored) {
-            return false;
-        } finally {
-            if (process != null) process.destroy();
+        SharedPreferences sp = Prefs.sp(this);
+        String event = sp.getString(Prefs.KEY_LAST_EVENT, "");
+        String detail = sp.getString(Prefs.KEY_LAST_DETAIL, "");
+        long time = sp.getLong(Prefs.KEY_LAST_TIME, 0L);
+        int hits = sp.getInt(Prefs.KEY_HIT_COUNT, 0);
+        String when = time > 0 ? DateFormat.format("yyyy-MM-dd HH:mm:ss", new Date(time)).toString() : "无";
+        if (event == null || event.length() == 0) {
+            statusText.setText("LSPosed 状态：暂无加载记录\n命中次数：" + hits + "\n提示：安全文件夹下状态广播可能被跨用户隔离，请同时查看 LSPosed 日志。搜索关键字：WXHideLSP");
+        } else {
+            statusText.setText("LSPosed 状态：" + event + "\n时间：" + when + "\n详情：" + detail + "\n命中次数：" + hits);
         }
     }
 
-    private LinearLayout.LayoutParams lp(int w, int h) {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(w, h);
-        params.setMargins(0, dp(6), 0, dp(6));
-        return params;
+    private void readGlobalConfig() {
+        String enabled = Prefs.runShellRead("settings get global " + Prefs.GLOBAL_ENABLED);
+        String b64 = Prefs.runShellRead("settings get global " + Prefs.GLOBAL_RULES_B64);
+        String rules = Prefs.fromB64(b64);
+        Toast.makeText(this, "global enabled=" + enabled + "，rules 字符数=" + rules.length(), Toast.LENGTH_LONG).show();
     }
 
-    private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 }

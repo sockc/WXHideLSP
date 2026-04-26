@@ -1,21 +1,19 @@
-# WX Hide LSP v0.1.5
+# WX Hide LSP v0.1.6
 
-一个用于 LSPosed/Xposed 生态的微信本机 UI 隐藏模块。
+Local UI hiding rules for WeChat, designed for LSPosed.
 
-## 功能
+## What this version changes
 
-- 仅作用域：`com.tencent.mm`
-- 通过关键词隐藏微信会话列表、联系人列表、搜索结果等列表条目
-- 不删除微信数据库
-- 不上传、不转发、不备份聊天内容
-- 配置只保存在模块自身 SharedPreferences 中
-- v0.1.5 增加状态页、动态 Adapter Hook、TextView 异步文字兜底 Hook
+- Adds Samsung Secure Folder / clone profile compatibility.
+- Saves rules both to app SharedPreferences and to Android `Settings.Global` through root.
+- WeChat process reads `Settings.Global` first, then falls back to ContentProvider.
+- Adds stronger TextView/ViewGroup/RecyclerView/ListView hooks.
 
-## GitHub Actions 构建
+## Build
 
-上传到 GitHub 仓库根目录后，打开 Actions -> Build WXHideLSP APK -> Run workflow。
+Upload this project to GitHub root and run Actions -> Build WXHideLSP APK.
 
-仓库根目录应直接包含：
+Repository root should contain:
 
 ```text
 app/
@@ -26,17 +24,13 @@ gradle.properties
 README.md
 ```
 
-## 使用
+## Usage
 
-1. 安装 APK。
-2. LSPosed 中启用模块，作用域只勾选微信 `com.tencent.mm`。
-3. 重启手机或强制停止微信。
-4. 打开 `WX Hide LSP`，每行填写一个关键词，例如备注名、昵称、群名。
-5. 保存后强制停止微信，再打开微信测试。
-6. 回到模块 App 点“刷新模块状态”，如果显示 `loaded` 或 `hit`，说明模块已加载。
+1. Install APK.
+2. Enable module in LSPosed.
+3. Scope WeChat: `com.tencent.mm`.
+4. Open WX Hide LSP and add one keyword per line.
+5. Tap "保存规则 + 写入安全文件夹兼容配置".
+6. Force stop WeChat and reopen it.
 
-## 注意
-
-- 这是 UI 隐藏，不是数据库级隐藏。
-- 关键词不要太短，否则可能误隐藏正常联系人或聊天。
-- 如果状态一直为空，说明模块入口没有进入微信进程。优先检查 LSPosed 作用域是否勾选微信、是否勾选了正确用户或分身微信，并重启手机。
+If WeChat is inside Samsung Secure Folder, install/open this module in the same profile when possible, and use the global-config save button.
