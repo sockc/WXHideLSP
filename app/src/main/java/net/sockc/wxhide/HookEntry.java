@@ -1,6 +1,7 @@
 package net.sockc.wxhide;
 
 import android.app.Activity;
+import android.app.Application;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
@@ -51,18 +52,40 @@ public class HookEntry implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if (!WECHAT_PACKAGE.equals(lpparam.packageName)) return;
-        // UI 基本都在主进程；其他进程跳过，降低误 Hook 和性能开销。
-        if (!WECHAT_PACKAGE.equals(lpparam.processName)) return;
 
+        // v0.1.4：不再限制 processName。部分微信/分身环境下 UI 入口不一定按预期出现在主进程。
         if (!hooksInstalled.compareAndSet(false, true)) return;
 
-        log("loaded in WeChat: " + lpparam.packageName + ", process=" + lpparam.processName);
+        log("handleLoadPackage: package=" + lpparam.packageName + ", process=" + lpparam.processName);
+        hookApplicationAttach(lpparam);
         hookActivityResume();
         hookRecyclerView(lpparam.classLoader);
         hookAbsListView();
         hookTextViewTextChange();
     }
 
+    private void hookApplicationAttach(final XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            XposedHelpers.findAndHookMethod(Application.class, "attach", Context.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    Context context = null;
+                    if (param.args != null && param.args.length > 0 && param.args[0] instanceof Context) {
+                        context = ((Context) param.args[0]).getApplicationContext();
+                    }
+                    if (context == null && param.thisObject instanceof Application) {
+                        context = ((Application) param.thisObject).getApplicationContext();
+                    }
+                    if (context == null) return;
+                    reloadRules(context, true);
+                    reportStatus(context, "attach", "Application.attach: process=" + lpparam.processName);
+                }
+            });
+            log("hook Application.attach ok");
+        } catch (Throwable t) {
+            log("hook Application.attach failed", t);
+        }
+    }
     private void hookActivityResume() {
         try {
             XposedHelpers.findAndHookMethod(Activity.class, "onResume", new XC_MethodHook() {

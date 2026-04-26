@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
         ));
 
         TextView title = new TextView(this);
-        title.setText("WX Hide LSP v0.1.3");
+        title.setText("WX Hide LSP v0.1.4");
         title.setTextSize(22);
         title.setGravity(Gravity.START);
         root.addView(title, lp(-1, -2));
@@ -105,7 +105,7 @@ public class MainActivity extends Activity {
         root.addView(refresh, lp(-1, -2));
 
         TextView note = new TextView(this);
-        note.setText("说明：\n1. v0.1.3 增加了强 Hook：动态 Hook 微信真实 RecyclerView Adapter，并监听 TextView 异步文字。\n2. 打开微信后回到这里刷新状态，如果显示 loaded/hit，说明 LSPosed 已加载。\n3. 如果状态一直为空，优先检查 LSPosed 作用域是否勾选微信，然后重启手机。\n4. 不建议填过短关键词，否则容易误隐藏正常联系人。");
+        note.setText("说明：\n1. v0.1.4 增加了 Application.attach 加载记录，取消主进程限制，并保留强 Hook。\n2. 打开微信后回到这里刷新状态，如果显示 attach/loaded/hit，说明 LSPosed 已加载。\n3. 如果状态一直为空，说明模块入口没有进微信进程；检查作用域、用户/分身微信、LSPosed 日志。\n4. 不建议填过短关键词，否则容易误隐藏正常联系人。");
         note.setTextSize(13);
         note.setPadding(0, dp(12), 0, 0);
         root.addView(note, lp(-1, -2));
