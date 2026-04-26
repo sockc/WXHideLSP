@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
         ));
 
         TextView title = new TextView(this);
-        title.setText("WX Hide LSP v0.1.4");
+        title.setText("WX Hide LSP v0.1.5");
         title.setTextSize(22);
         title.setGravity(Gravity.START);
         root.addView(title, lp(-1, -2));
@@ -105,7 +105,7 @@ public class MainActivity extends Activity {
         root.addView(refresh, lp(-1, -2));
 
         TextView note = new TextView(this);
-        note.setText("说明：\n1. v0.1.4 增加了 Application.attach 加载记录，取消主进程限制，并保留强 Hook。\n2. 打开微信后回到这里刷新状态，如果显示 attach/loaded/hit，说明 LSPosed 已加载。\n3. 如果状态一直为空，说明模块入口没有进微信进程；检查作用域、用户/分身微信、LSPosed 日志。\n4. 不建议填过短关键词，否则容易误隐藏正常联系人。");
+        note.setText("说明：\n1. v0.1.5 增加全作用域探针。只要 LSPosed 把模块注入到已勾选 App，就会显示 probe/attach。\n2. 正常勾选微信后，打开微信再刷新状态，应该显示 attach/loaded/hit。\n3. 如果一直是暂无加载记录，优先检查：Magisk/KSU/APatch 排除列表是否把微信排除了、是否使用微信分身/安全文件夹、LSPosed 作用域是否勾选到正确用户。\n4. 临时调试时可以把“设置”也加入作用域，打开系统设置后如果显示 probe，说明模块本身能注入；如果仍为空，是 LSPosed/排除列表问题。\n5. 不建议填过短关键词，否则容易误隐藏正常联系人。");
         note.setTextSize(13);
         note.setPadding(0, dp(12), 0, 0);
         root.addView(note, lp(-1, -2));

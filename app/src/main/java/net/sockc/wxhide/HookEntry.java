@@ -40,7 +40,8 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static final int TAG_ORIGINAL_VISIBILITY = 0x72684352;
     private static final int TAG_ORIGINAL_ALPHA = 0x72684353;
 
-    private static final AtomicBoolean hooksInstalled = new AtomicBoolean(false);
+    private static final AtomicBoolean fullHooksInstalled = new AtomicBoolean(false);
+    private static final AtomicBoolean attachProbeInstalled = new AtomicBoolean(false);
     private static final Set<String> hookedAdapterClasses = Collections.synchronizedSet(new HashSet<String>());
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
@@ -50,21 +51,26 @@ public class HookEntry implements IXposedHookLoadPackage {
     private static volatile long lastReportAt = 0L;
 
     @Override
-    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
+    public void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam) {
+        // v0.1.5：先对所有 LSPosed 已勾选作用域安装 Application.attach 探针。
+        // 这样可以区分“模块没有注入”和“微信 Hook 没命中”。
+        log("handleLoadPackage probe: package=" + lpparam.packageName + ", process=" + lpparam.processName);
+        hookApplicationAttachProbe(lpparam);
+
         if (!WECHAT_PACKAGE.equals(lpparam.packageName)) return;
 
-        // v0.1.4：不再限制 processName。部分微信/分身环境下 UI 入口不一定按预期出现在主进程。
-        if (!hooksInstalled.compareAndSet(false, true)) return;
+        // 不限制 processName。部分微信/分身环境下 UI 入口不一定按预期出现在主进程。
+        if (!fullHooksInstalled.compareAndSet(false, true)) return;
 
-        log("handleLoadPackage: package=" + lpparam.packageName + ", process=" + lpparam.processName);
-        hookApplicationAttach(lpparam);
+        log("handleLoadPackage wechat: package=" + lpparam.packageName + ", process=" + lpparam.processName);
         hookActivityResume();
         hookRecyclerView(lpparam.classLoader);
         hookAbsListView();
         hookTextViewTextChange();
     }
 
-    private void hookApplicationAttach(final XC_LoadPackage.LoadPackageParam lpparam) {
+    private void hookApplicationAttachProbe(final XC_LoadPackage.LoadPackageParam lpparam) {
+        if (!attachProbeInstalled.compareAndSet(false, true)) return;
         try {
             XposedHelpers.findAndHookMethod(Application.class, "attach", Context.class, new XC_MethodHook() {
                 @Override
@@ -77,13 +83,18 @@ public class HookEntry implements IXposedHookLoadPackage {
                         context = ((Application) param.thisObject).getApplicationContext();
                     }
                     if (context == null) return;
-                    reloadRules(context, true);
-                    reportStatus(context, "attach", "Application.attach: process=" + lpparam.processName);
+
+                    if (WECHAT_PACKAGE.equals(lpparam.packageName)) {
+                        reloadRules(context, true);
+                        reportStatus(context, "attach", "Application.attach: package=" + lpparam.packageName + ", process=" + lpparam.processName);
+                    } else {
+                        reportStatus(context, "probe", "Application.attach: package=" + lpparam.packageName + ", process=" + lpparam.processName);
+                    }
                 }
             });
-            log("hook Application.attach ok");
+            log("hook Application.attach probe ok");
         } catch (Throwable t) {
-            log("hook Application.attach failed", t);
+            log("hook Application.attach probe failed", t);
         }
     }
     private void hookActivityResume() {

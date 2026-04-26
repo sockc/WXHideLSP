@@ -1,4 +1,4 @@
-# WX Hide LSP v0.1.4
+# WX Hide LSP v0.1.5
 
 一个用于 LSPosed/Xposed 生态的微信本机 UI 隐藏模块。
 
@@ -9,7 +9,7 @@
 - 不删除微信数据库
 - 不上传、不转发、不备份聊天内容
 - 配置只保存在模块自身 SharedPreferences 中
-- v0.1.4 增加状态页、动态 Adapter Hook、TextView 异步文字兜底 Hook
+- v0.1.5 增加状态页、动态 Adapter Hook、TextView 异步文字兜底 Hook
 
 ## GitHub Actions 构建
 

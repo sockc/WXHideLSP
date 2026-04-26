@@ -96,9 +96,12 @@ public class ConfigProvider extends ContentProvider {
     @Override
     public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
         Context context = getContext();
-        if (context == null || !isCallerAllowed(context)) return 0;
+        if (context == null) return 0;
         String path = uri == null ? "" : uri.getPath();
         if (!"/status".equals(path)) return 0;
+
+        // v0.1.5：status 是诊断记录，允许任意已被 LSPosed 注入的作用域进程写入。
+        // rules 读取仍然只允许模块本身和微信。
         String event = values == null ? "" : values.getAsString("event");
         String detail = values == null ? "" : values.getAsString("detail");
         Prefs.saveStatus(context, event, detail);
