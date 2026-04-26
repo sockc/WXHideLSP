@@ -14,6 +14,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -124,10 +125,13 @@ public class HookEntry implements IXposedHookLoadPackage {
         final View decor;
         try { decor = activity.getWindow().getDecorView(); } catch (Throwable t) { return; }
         if (decor == null) return;
-        long[] delays = new long[]{0L, 160L, 520L};
+        long[] delays = new long[]{0L, 40L, 120L, 260L, 560L};
         for (final long d : delays) {
             decor.postDelayed(new Runnable() {
-                 public void run() { scanVisibleLists(activity, decor, 0); }
+                 public void run() {
+                     scanVisibleLists(activity, decor, 0);
+                     cleanupSearchResidueForHiddenQuery(activity, decor);
+                 }
             }, d);
         }
     }
@@ -180,11 +184,22 @@ public class HookEntry implements IXposedHookLoadPackage {
                     if (!(obj instanceof TextView)) return;
                     final TextView tv = (TextView) obj;
                     tv.postDelayed(new Runnable() {
-                        @Override public void run() { applyFromAnyView(context, tv, false); }
-                    }, 80L);
+                        @Override public void run() {
+                            applyFromAnyView(context, tv, false);
+                            cleanupSearchResidueForHiddenQuery(context, tv.getRootView());
+                        }
+                    }, 40L);
                     tv.postDelayed(new Runnable() {
-                        @Override public void run() { applyFromAnyView(context, tv, false); }
-                    }, 260L);
+                        @Override public void run() {
+                            applyFromAnyView(context, tv, false);
+                            cleanupSearchResidueForHiddenQuery(context, tv.getRootView());
+                        }
+                    }, 160L);
+                    tv.postDelayed(new Runnable() {
+                        @Override public void run() {
+                            cleanupSearchResidueForHiddenQuery(context, tv.getRootView());
+                        }
+                    }, 360L);
                 }
             });
             XposedBridge.log(TAG + ": hook TextView.setText ok");
@@ -330,7 +345,10 @@ public class HookEntry implements IXposedHookLoadPackage {
         MatchResult mr = matchText(text, cfg);
         if (mr.matched) {
             hide(target);
-            if (cfg.searchSafe && allowHeaderCleanup) cleanupSearchLocalSectionAfterHit(target);
+            if (cfg.searchSafe && allowHeaderCleanup) {
+                cleanupSearchLocalSectionAfterHit(target);
+                cleanupSearchResidueForHiddenQuery(context, target.getRootView());
+            }
             record(context, "hit", "matched: " + mr.reason + " on item=" + target.getClass().getSimpleName(), true);
         } else {
             restoreIfNeeded(target);
@@ -398,6 +416,167 @@ public class HookEntry implements IXposedHookLoadPackage {
 
     private static boolean isActivityContent(View v) {
         try { return v.getId() == android.R.id.content; } catch (Throwable ignored) { return false; }
+    }
+
+    private static void cleanupSearchResidueForHiddenQuery(final Context context, final View root) {
+        if (context == null || root == null) return;
+        try {
+            final Config cfg = readConfig(context, false);
+            if (!cfg.enabled || !cfg.searchSafe || cfg.rules.isEmpty()) return;
+            String query = findCurrentSearchQuery(root);
+            if (!isHiddenRuleRelatedQuery(query, cfg)) return;
+            hideSearchLocalResidue(root, cfg);
+        } catch (Throwable ignored) {}
+    }
+
+    private static String findCurrentSearchQuery(View root) {
+        SearchQueryHolder holder = new SearchQueryHolder();
+        collectSearchQuery(root, holder, 0);
+        return holder.best == null ? "" : holder.best;
+    }
+
+    private static void collectSearchQuery(View v, SearchQueryHolder holder, int depth) {
+        if (v == null || holder == null || depth > 18 || holder.focusedFound) return;
+        try {
+            if (v instanceof EditText) {
+                String t = compact(safeCharSeq(((EditText) v).getText()));
+                if (t.length() >= 1 && t.length() <= 80 && !isCommonToken(t) && !isNetworkSearchRow(t)) {
+                    if (v.isFocused()) {
+                        holder.best = t;
+                        holder.focusedFound = true;
+                        return;
+                    }
+                    if (holder.best == null || holder.best.length() == 0) holder.best = t;
+                }
+            }
+            if (v instanceof ViewGroup) {
+                ViewGroup vg = (ViewGroup) v;
+                int count = Math.min(vg.getChildCount(), 220);
+                for (int i = 0; i < count; i++) collectSearchQuery(vg.getChildAt(i), holder, depth + 1);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean isHiddenRuleRelatedQuery(String query, Config cfg) {
+        if (query == null || cfg == null || cfg.rules == null) return false;
+        String q = compact(query).toLowerCase(Locale.ROOT);
+        if (q.length() < 2) return false;
+        for (String rule : cfg.rules) {
+            if (rule == null) continue;
+            String r = compact(rule).toLowerCase(Locale.ROOT);
+            if (r.length() < 2) continue;
+            if (r.contains(q) || q.contains(r)) return true;
+        }
+        return false;
+    }
+
+    private static void hideSearchLocalResidue(View root, Config cfg) {
+        try {
+            ArrayList<View> headers = new ArrayList<View>();
+            ArrayList<View> networks = new ArrayList<View>();
+            collectSearchMarkers(root, headers, networks, 0);
+            if (headers.isEmpty()) return;
+
+            if (!networks.isEmpty()) {
+                for (View header : headers) {
+                    for (View network : networks) {
+                        ViewGroup parent = findSearchCommonParent(header, network);
+                        if (parent == null) continue;
+                        View headerChild = directChildUnder(parent, header);
+                        View networkChild = directChildUnder(parent, network);
+                        if (headerChild == null || networkChild == null) continue;
+                        int hi = parent.indexOfChild(headerChild);
+                        int ni = parent.indexOfChild(networkChild);
+                        if (hi < 0 || ni <= hi || ni - hi > 10) continue;
+                        if (localSectionHasVisibleNonHiddenResult(parent, hi + 1, ni, cfg)) continue;
+                        for (int i = hi; i < ni; i++) {
+                            View child = parent.getChildAt(i);
+                            if (child != null) hide(child);
+                        }
+                        requestRelayout(parent);
+                    }
+                }
+            }
+
+            for (View header : headers) {
+                hideHeaderAndFollowingResidue(header, cfg);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static boolean localSectionHasVisibleNonHiddenResult(ViewGroup parent, int start, int end, Config cfg) {
+        if (parent == null) return false;
+        try {
+            int e = Math.min(end, parent.getChildCount());
+            for (int i = Math.max(0, start); i < e; i++) {
+                View child = parent.getChildAt(i);
+                if (child == null || child.getVisibility() != View.VISIBLE) continue;
+                if (child.getTag(TAG_HIDE_STATE) instanceof HideState) continue;
+                String ct = compact(collectText(child, 0, new StringBuilder(800)).toString());
+                if (ct.length() == 0) continue;
+                if (isSearchSectionHeader(ct) || isNetworkSearchRow(ct) || isLoadingText(ct)) continue;
+                if (matchText(ct, cfg).matched) continue;
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static void hideHeaderAndFollowingResidue(View header, Config cfg) {
+        if (header == null) return;
+        View cur = header;
+        int depth = 0;
+        while (cur != null && cur.getParent() instanceof View && depth < 10) {
+            View p = (View) cur.getParent();
+            if (isActivityContent(p) || !(p instanceof ViewGroup)) break;
+            ViewGroup parent = (ViewGroup) p;
+            if (parent.getChildCount() > 1 && parent.getChildCount() <= 80) {
+                View headerChild = directChildUnder(parent, header);
+                int hi = headerChild == null ? -1 : parent.indexOfChild(headerChild);
+                if (hi >= 0) {
+                    String parentText = compact(collectText(parent, 0, new StringBuilder(1800)).toString());
+                    if (parentText.contains("联系人") && !looksLikeSettingsPageGroup(parentText)) {
+                        String headerText = compact(collectText(headerChild, 0, new StringBuilder(800)).toString());
+                        if (!isResidueCandidate(headerChild, headerText, cfg)) {
+                            cur = p;
+                            depth++;
+                            continue;
+                        }
+                        hide(headerChild);
+                        int stop = Math.min(parent.getChildCount(), hi + 6);
+                        for (int i = hi + 1; i < stop; i++) {
+                            View child = parent.getChildAt(i);
+                            if (child == null) continue;
+                            String ct = compact(collectText(child, 0, new StringBuilder(800)).toString());
+                            if (isNetworkSearchRow(ct)) break;
+                            if (isResidueCandidate(child, ct, cfg)) {
+                                hide(child);
+                                continue;
+                            }
+                            break;
+                        }
+                        requestRelayout(parent);
+                    }
+                }
+            }
+            cur = p;
+            depth++;
+        }
+    }
+
+    private static boolean isResidueCandidate(View child, String compactText, Config cfg) {
+        if (child == null) return false;
+        String ct = compactText == null ? "" : compactText;
+        if (isNetworkSearchRow(ct)) return false;
+        if (child.getTag(TAG_HIDE_STATE) instanceof HideState) return true;
+        if (isSearchSectionHeader(ct) || isLoadingText(ct)) return true;
+        if (ct.length() == 0) {
+            int h = 0;
+            try { h = child.getHeight(); } catch (Throwable ignored) {}
+            return h <= 0 || h <= dp(child.getContext(), 220);
+        }
+        if (matchText(ct, cfg).matched) return true;
+        return false;
     }
 
     private static void cleanupSearchLocalSectionAfterHit(final View hiddenItem) {
@@ -523,6 +702,11 @@ public class HookEntry implements IXposedHookLoadPackage {
         if (compactText == null) return false;
         return "联系人".equals(compactText) || "聊天记录".equals(compactText) || "群聊".equals(compactText)
                 || "公众号".equals(compactText) || "小程序".equals(compactText);
+    }
+
+    private static boolean isLoadingText(String compactText) {
+        if (compactText == null) return false;
+        return "加载中".equals(compactText) || "正在加载".equals(compactText) || "Loading".equalsIgnoreCase(compactText);
     }
 
     private static boolean isNetworkSearchRow(String text) {
@@ -894,6 +1078,11 @@ public class HookEntry implements IXposedHookLoadPackage {
             i.putExtra(StatusReceiver.EXTRA_HIT, hit);
             context.sendBroadcast(i);
         } catch (Throwable ignored) {}
+    }
+
+    private static final class SearchQueryHolder {
+        String best = "";
+        boolean focusedFound = false;
     }
 
     private static final class MatchResult {

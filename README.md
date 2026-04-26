@@ -1,13 +1,14 @@
-# WX Hide LSP v0.2.4
+# WX Hide LSP v0.2.5
 
 LSPosed module for WeChat local UI hiding.
 
-## v0.2.4 changes
+## v0.2.5 changes
 
-- Fix search page residue: when a hidden contact result is removed, also hide the local `联系人` section/header and its empty spacer before `搜索网络结果`.
-- Keep WeChat network search visible; the module no longer tries to hide `搜索网络结果 / 搜一搜 / 网络结果` rows.
-- Add layout refresh after hide/restore to reduce blank blocks in RecyclerView/ListView.
-- Keep APK desktop page as status page; full settings remain under WeChat `我 → 设置 → 功能 → WX Hide LSP`.
+- Fix WeChat search residue during incremental input such as `A0` / `A0英`.
+- When the current search query is related to a hidden rule, hide the local `联系人` header, blank spacer and `加载中` residue before the network-search row appears.
+- Keep `搜索网络结果` visible and untouched.
+- Avoid scanning/cleaning Discover, Moments and large page containers.
+- Keep full settings under WeChat `我 → 设置 → 功能 → WX Hide LSP`; APK desktop page remains status-only.
 - Keep stable debug signing for direct upgrade from v0.2.3+.
 
 ## Upgrade
