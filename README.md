@@ -1,8 +1,8 @@
-# WX Hide LSP v0.2.6
+# WX Hide LSP v0.2.7
 
 LSPosed module for WeChat local UI hiding.
 
-## v0.2.6 changes
+## v0.2.7 changes
 
 - Fix WeChat search residue during incremental input such as `A0` / `A0英`.
 - When the current search query is related to a hidden rule, hide the local `联系人` header, blank spacer and `加载中` residue before the network-search row appears.
@@ -16,7 +16,7 @@ LSPosed module for WeChat local UI hiding.
 From v0.2.3 and later, direct install should work because the debug signing key is stable. If Android reports signature conflict, uninstall the old APK once and install again.
 
 
-## v0.2.6 search tuning
+## v0.2.7 search tuning
 
 - Partial queries such as `A0` / `A0英` no longer trigger section cleanup.
 - Search cleanup starts only after the query contains a full hidden rule or alias, such as `A0英智`.

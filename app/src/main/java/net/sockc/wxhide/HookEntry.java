@@ -377,8 +377,12 @@ public class HookEntry implements IXposedHookLoadPackage {
         try {
             if (v.getRootView() == v) return false;
             ViewGroup.LayoutParams lp = v.getLayoutParams();
-            int h = lp == null ? 0 : lp.height;
+            int h = v.getHeight();
+            if (h <= 0 && lp != null) h = lp.height;
             if (h == 0 && !(v.getTag(TAG_HIDE_STATE) instanceof HideState)) return false;
+            // v0.2.7: never hide large search/page containers.
+            // A hidden contact row is normally around 48-96dp; large containers caused black screens.
+            if (h > dp(v.getContext(), 180) && !(v.getTag(TAG_HIDE_STATE) instanceof HideState)) return false;
             if (hasListParent(v)) return true;
             return isSafeStandaloneRow(v);
         } catch (Throwable ignored) {
@@ -462,7 +466,7 @@ public class HookEntry implements IXposedHookLoadPackage {
         String q = compact(query).toLowerCase(Locale.ROOT);
         if (q.length() < 2) return false;
 
-        // v0.2.6: do NOT treat a short prefix as a hidden-contact query.
+        // v0.2.7: do NOT treat a short prefix as a hidden-contact query.
         // Example: rule=A0英智. Query=A0 or A0英 should keep WeChat search UI normal,
         // because other visible contacts may also contain A0. Cleanup only starts when
         // the typed query already contains the full rule/alias, such as A0英智.
@@ -494,18 +498,22 @@ public class HookEntry implements IXposedHookLoadPackage {
                         int ni = parent.indexOfChild(networkChild);
                         if (hi < 0 || ni <= hi || ni - hi > 10) continue;
                         if (localSectionHasVisibleNonHiddenResult(parent, hi + 1, ni, cfg)) continue;
+                        if (!canHideRangeAsSmallRows(parent, hi, ni)) continue;
                         for (int i = hi; i < ni; i++) {
                             View child = parent.getChildAt(i);
-                            if (child != null) hide(child);
+                            if (child != null) hideSmall(child);
                         }
                         requestRelayout(parent);
                     }
                 }
             }
 
-            for (View header : headers) {
+            // v0.2.7: Do not run the old no-network fallback cleanup.
+            // It can hide an upper search container on WeChat 8.0.69 and leave a black page.
+            // Header cleanup is now only done in the bounded header->network range above.
+            /* for (View header : headers) {
                 hideHeaderAndFollowingResidue(header, cfg);
-            }
+            } */
         } catch (Throwable ignored) {}
     }
 
@@ -547,7 +555,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                             depth++;
                             continue;
                         }
-                        hide(headerChild);
+                        hideSmall(headerChild);
                         int stop = Math.min(parent.getChildCount(), hi + 6);
                         for (int i = hi + 1; i < stop; i++) {
                             View child = parent.getChildAt(i);
@@ -555,7 +563,7 @@ public class HookEntry implements IXposedHookLoadPackage {
                             String ct = compact(collectText(child, 0, new StringBuilder(800)).toString());
                             if (isNetworkSearchRow(ct)) break;
                             if (isResidueCandidate(child, ct, cfg)) {
-                                hide(child);
+                                hideSmall(child);
                                 continue;
                             }
                             break;
@@ -631,9 +639,10 @@ public class HookEntry implements IXposedHookLoadPackage {
                     }
                     if (hasVisibleLocalResult) continue;
 
+                    if (!canHideRangeAsSmallRows(parent, hi, ni)) continue;
                     for (int i = hi; i < ni; i++) {
                         View child = parent.getChildAt(i);
-                        if (child != null) hide(child);
+                        if (child != null) hideSmall(child);
                     }
                     requestRelayout(parent);
                     return;
@@ -758,6 +767,47 @@ public class HookEntry implements IXposedHookLoadPackage {
 
     private static String safeCharSeq(CharSequence cs) {
         return cs == null ? "" : cs.toString();
+    }
+
+    private static boolean canHideSmallRow(View v) {
+        if (v == null || isActivityContent(v)) return false;
+        try {
+            if (v.getRootView() == v) return false;
+            int h = v.getHeight();
+            ViewGroup.LayoutParams lp = v.getLayoutParams();
+            if (h <= 0 && lp != null) h = lp.height;
+            if (h == ViewGroup.LayoutParams.MATCH_PARENT || h == ViewGroup.LayoutParams.WRAP_CONTENT) {
+                // Unknown before layout: allow only if text clearly looks like a small header/row.
+                String ct = compact(collectText(v, 0, new StringBuilder(500)).toString());
+                return ct.length() > 0 && ct.length() <= 120;
+            }
+            if (h < 0) return false;
+            return h <= dp(v.getContext(), 180);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static void hideSmall(View v) {
+        if (canHideSmallRow(v)) hide(v);
+    }
+
+    private static boolean canHideRangeAsSmallRows(ViewGroup parent, int start, int end) {
+        if (parent == null) return false;
+        try {
+            int s = Math.max(0, start);
+            int e = Math.min(end, parent.getChildCount());
+            if (e <= s || e - s > 10) return false;
+            for (int i = s; i < e; i++) {
+                View child = parent.getChildAt(i);
+                if (child == null) continue;
+                if (child.getVisibility() != View.VISIBLE && !(child.getTag(TAG_HIDE_STATE) instanceof HideState)) continue;
+                if (!canHideSmallRow(child)) return false;
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static void hide(View root) {

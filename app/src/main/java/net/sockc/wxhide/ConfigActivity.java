@@ -44,14 +44,14 @@ public class ConfigActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("WX Hide LSP 设置 v0.2.6");
+        title.setText("WX Hide LSP 设置 v0.2.7");
         title.setTextSize(28);
         title.setGravity(Gravity.START);
         title.setPadding(0, 0, 0, dp(12));
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView tips = new TextView(this);
-        tips.setText("v0.2.6：配置页主要从微信 设置 → 功能 → WX Hide LSP 打开。\n"
+        tips.setText("v0.2.7：配置页主要从微信 设置 → 功能 → WX Hide LSP 打开。\n"
                 + "保存规则后会通知微信进程重新读取配置，通常不需要重启微信；如果当前页面没有立刻刷新，返回/滑动/重新搜索一下即可。\n"
                 + "只隐藏命中的联系人行和聊天记录行；搜索隐藏联系人时会同步清掉“联系人”标题、灰色空白和“加载中”残留，不隐藏网络搜索。");
         tips.setTextSize(14);
