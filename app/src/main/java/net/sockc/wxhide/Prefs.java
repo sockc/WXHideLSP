@@ -1,7 +1,9 @@
 package net.sockc.wxhide;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.provider.Settings;
 import android.util.Base64;
 
@@ -16,6 +18,9 @@ public final class Prefs {
     public static final String SP_NAME = "wxhide_config";
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_RULES = "rules";
+    public static final String KEY_DEEP_SEARCH = "deep_search";
+    public static final String KEY_WECHAT_ENTRY = "wechat_entry";
+    public static final String KEY_LAUNCHER_VISIBLE = "launcher_visible";
     public static final String KEY_LAST_EVENT = "last_event";
     public static final String KEY_LAST_DETAIL = "last_detail";
     public static final String KEY_LAST_TIME = "last_time";
@@ -23,6 +28,8 @@ public final class Prefs {
 
     public static final String GLOBAL_ENABLED = "net_sockc_wxhide_enabled";
     public static final String GLOBAL_RULES_B64 = "net_sockc_wxhide_rules_b64";
+    public static final String GLOBAL_DEEP_SEARCH = "net_sockc_wxhide_deep_search";
+    public static final String GLOBAL_WECHAT_ENTRY = "net_sockc_wxhide_wechat_entry";
 
     private Prefs() {}
 
@@ -38,11 +45,27 @@ public final class Prefs {
         return sp(context).getString(KEY_RULES, "");
     }
 
-    public static void saveLocal(Context context, boolean enabled, String rules) {
+    public static boolean getDeepSearchLocal(Context context) {
+        return sp(context).getBoolean(KEY_DEEP_SEARCH, true);
+    }
+
+    public static boolean getWechatEntryLocal(Context context) {
+        return sp(context).getBoolean(KEY_WECHAT_ENTRY, true);
+    }
+
+    public static boolean getLauncherVisibleLocal(Context context) {
+        return sp(context).getBoolean(KEY_LAUNCHER_VISIBLE, true);
+    }
+
+    public static void saveLocal(Context context, boolean enabled, String rules, boolean deepSearch, boolean wechatEntry, boolean launcherVisible) {
         sp(context).edit()
                 .putBoolean(KEY_ENABLED, enabled)
                 .putString(KEY_RULES, rules == null ? "" : rules)
+                .putBoolean(KEY_DEEP_SEARCH, deepSearch)
+                .putBoolean(KEY_WECHAT_ENTRY, wechatEntry)
+                .putBoolean(KEY_LAUNCHER_VISIBLE, launcherVisible)
                 .apply();
+        setLauncherVisible(context, launcherVisible);
     }
 
     public static void saveStatus(Context context, String event, String detail, boolean hit) {
@@ -91,15 +114,45 @@ public final class Prefs {
         }
     }
 
-    public static boolean putGlobalViaRoot(boolean enabled, String rules) {
+    public static boolean getDeepSearchFromGlobal(Context context) {
+        try {
+            String v = Settings.Global.getString(context.getContentResolver(), GLOBAL_DEEP_SEARCH);
+            if (v == null || v.length() == 0) return true;
+            return "1".equals(v) || "true".equalsIgnoreCase(v);
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    public static boolean getWechatEntryFromGlobal(Context context) {
+        try {
+            String v = Settings.Global.getString(context.getContentResolver(), GLOBAL_WECHAT_ENTRY);
+            if (v == null || v.length() == 0) return true;
+            return "1".equals(v) || "true".equalsIgnoreCase(v);
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    public static boolean putGlobalViaRoot(boolean enabled, String rules, boolean deepSearch, boolean wechatEntry) {
         String b64 = toB64(rules == null ? "" : rules);
         String cmd = "settings put global " + GLOBAL_ENABLED + " " + (enabled ? "1" : "0")
-                + " && settings put global " + GLOBAL_RULES_B64 + " '" + escapeSingleQuote(b64) + "'";
+                + " && settings put global " + GLOBAL_RULES_B64 + " '" + escapeSingleQuote(b64) + "'"
+                + " && settings put global " + GLOBAL_DEEP_SEARCH + " " + (deepSearch ? "1" : "0")
+                + " && settings put global " + GLOBAL_WECHAT_ENTRY + " " + (wechatEntry ? "1" : "0");
         return runRoot(cmd);
     }
 
     public static boolean forceStopWechatViaRoot() {
         return runRoot("am force-stop " + WECHAT_PACKAGE);
+    }
+
+    public static void setLauncherVisible(Context context, boolean visible) {
+        try {
+            ComponentName alias = new ComponentName(context, PACKAGE_NAME + ".LauncherActivity");
+            int state = visible ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+            context.getPackageManager().setComponentEnabledSetting(alias, state, PackageManager.DONT_KILL_APP);
+        } catch (Throwable ignored) {}
     }
 
     private static String escapeSingleQuote(String s) {

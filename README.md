@@ -1,13 +1,13 @@
-# WX Hide LSP v0.1.6
+# WX Hide LSP v0.2.0
 
 Local UI hiding rules for WeChat, designed for LSPosed.
 
-## What this version changes
+## v0.2.0 changes
 
-- Adds Samsung Secure Folder / clone profile compatibility.
-- Saves rules both to app SharedPreferences and to Android `Settings.Global` through root.
-- WeChat process reads `Settings.Global` first, then falls back to ContentProvider.
-- Adds stronger TextView/ViewGroup/RecyclerView/ListView hooks.
+- Deeper search-page hiding: hides matching rows, related search rows, section headers, and empty-looking search containers more aggressively.
+- Optional WeChat Settings entry: adds a small `WX Hide LSP 设置` entry inside WeChat settings-like pages, which opens this module's configuration page.
+- Optional launcher icon hiding: hides only the desktop launcher alias. The module still remains visible in LSPosed and Android app management.
+- Keeps Samsung Secure Folder / clone profile compatibility.
 
 ## Build
 
@@ -28,9 +28,8 @@ README.md
 
 1. Install APK.
 2. Enable module in LSPosed.
-3. Scope WeChat: `com.tencent.mm`.
+3. Scope WeChat: `com.tencent.mm`, including Samsung Secure Folder profile if used.
 4. Open WX Hide LSP and add one keyword per line.
-5. Tap "保存规则 + 写入安全文件夹兼容配置".
-6. Force stop WeChat and reopen it.
-
-If WeChat is inside Samsung Secure Folder, install/open this module in the same profile when possible, and use the global-config save button.
+5. Enable deep search hiding if needed.
+6. Optionally enable WeChat settings entry before hiding launcher icon.
+7. Force stop WeChat and reopen it.

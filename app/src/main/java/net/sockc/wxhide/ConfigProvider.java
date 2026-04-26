@@ -17,11 +17,16 @@ public class ConfigProvider extends ContentProvider {
 
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
-        MatrixCursor cursor = new MatrixCursor(new String[]{"enabled", "rules"});
+        MatrixCursor cursor = new MatrixCursor(new String[]{"enabled", "rules", "deep_search", "wechat_entry"});
         if (getContext() != null) {
-            cursor.addRow(new Object[]{Prefs.getEnabledLocal(getContext()) ? "1" : "0", Prefs.getRulesLocal(getContext())});
+            cursor.addRow(new Object[]{
+                    Prefs.getEnabledLocal(getContext()) ? "1" : "0",
+                    Prefs.getRulesLocal(getContext()),
+                    Prefs.getDeepSearchLocal(getContext()) ? "1" : "0",
+                    Prefs.getWechatEntryLocal(getContext()) ? "1" : "0"
+            });
         } else {
-            cursor.addRow(new Object[]{"1", ""});
+            cursor.addRow(new Object[]{"1", "", "1", "1"});
         }
         return cursor;
     }
