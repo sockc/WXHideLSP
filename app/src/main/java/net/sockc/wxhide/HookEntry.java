@@ -461,11 +461,16 @@ public class HookEntry implements IXposedHookLoadPackage {
         if (query == null || cfg == null || cfg.rules == null) return false;
         String q = compact(query).toLowerCase(Locale.ROOT);
         if (q.length() < 2) return false;
+
+        // v0.2.6: do NOT treat a short prefix as a hidden-contact query.
+        // Example: rule=A0英智. Query=A0 or A0英 should keep WeChat search UI normal,
+        // because other visible contacts may also contain A0. Cleanup only starts when
+        // the typed query already contains the full rule/alias, such as A0英智.
         for (String rule : cfg.rules) {
             if (rule == null) continue;
             String r = compact(rule).toLowerCase(Locale.ROOT);
             if (r.length() < 2) continue;
-            if (r.contains(q) || q.contains(r)) return true;
+            if (q.equals(r) || q.contains(r)) return true;
         }
         return false;
     }

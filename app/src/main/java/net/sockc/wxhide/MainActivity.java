@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView tips = new TextView(this);
-        tips.setText("v0.2.5 开始，APK 桌面页只做模块状态显示。\n"
+        tips.setText("v0.2.6 开始，APK 桌面页只做模块状态显示。\n"
                 + "规则、开关、隐藏桌面图标等功能请从微信：我 → 设置 → 功能 → WX Hide LSP 打开。\n"
                 + "如果你已经隐藏桌面图标，也可以继续通过微信设置入口进入配置页。");
         tips.setTextSize(15);
